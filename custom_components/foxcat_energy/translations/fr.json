@@ -62,8 +62,8 @@
         }
       },
       "pricing": {
-        "title": "FoxCat Energy – Tarification",
-        "description": "Configure les capteurs du contrat dynamique et les plages HP/HC. Le régime actif se choisit ensuite via l’entité « Régime tarifaire ». Les prix HP/HC et le prix fixe d’injection sont réglables dans les entités de tarification.",
+        "title": "FoxCat Energy – Tarification dynamique",
+        "description": "Associe les capteurs du contrat dynamique : prix d’achat, prix suivant, prix de réinjection et statistiques min/max/moyenne. Les prix fixes HP/HC sont configurés sur l’écran suivant.",
         "data": {
           "price_current": "Prix actuel",
           "price_next": "Prix heure suivante",
@@ -74,11 +74,7 @@
           "price_min_tomorrow": "Minimum demain",
           "price_max_tomorrow": "Maximum demain",
           "price_avg_tomorrow": "Moyenne demain",
-          "price_tomorrow_available": "Prix de demain disponibles",
-          "tariff_hp_start_1": "Début heures pleines – plage 1",
-          "tariff_hp_end_1": "Fin heures pleines – plage 1",
-          "tariff_hp_start_2": "Début heures pleines – plage 2",
-          "tariff_hp_end_2": "Fin heures pleines – plage 2"
+          "price_tomorrow_available": "Prix de demain disponibles"
         }
       },
       "solar": {
@@ -98,6 +94,19 @@
           "forecast_tomorrow": "Prévision demain",
           "forecast_peak_tomorrow": "Heure du pic demain"
         }
+      },
+      "hphc": {
+        "title": "FoxCat Energy – Tarifs HP/HC",
+        "description": "Configure les prix TVAC d’achat en heures pleines et heures creuses, le prix fixe de réinjection et les deux plages HP. Les valeurs AIESH 07–11 et 17–22 restent proposées par défaut.",
+        "data": {
+          "tariff_hp_price_eur_kwh": "Prix achat heures pleines (HP) – €/kWh TVAC",
+          "tariff_hc_price_eur_kwh": "Prix achat heures creuses (HC) – €/kWh TVAC",
+          "tariff_fixed_injection_eur_kwh": "Prix fixe de réinjection – €/kWh",
+          "tariff_hp_start_1": "Début heures pleines – plage 1",
+          "tariff_hp_end_1": "Fin heures pleines – plage 1",
+          "tariff_hp_start_2": "Début heures pleines – plage 2",
+          "tariff_hp_end_2": "Fin heures pleines – plage 2"
+        }
       }
     }
   },
@@ -111,7 +120,8 @@
           "boiler": "Boiler",
           "pri": "PRI SolarEdge",
           "machines": "Machines",
-          "pricing": "Tarification",
+          "pricing": "Tarification dynamique",
+          "hphc": "Tarifs HP/HC",
           "solar": "EMS 2 solaire",
           "finish": "Enregistrer et quitter"
         }
@@ -129,13 +139,17 @@
         "title": "EMS Machines – prises et horaires"
       },
       "pricing": {
-        "title": "Tarification"
+        "title": "Tarification dynamique"
       },
       "solar": {
         "title": "EMS 2 solaire"
       },
       "finish": {
         "title": "Enregistrer et quitter"
+      },
+      "hphc": {
+        "title": "Tarifs HP/HC",
+        "description": "Prix d’achat HP/HC, prix fixe de réinjection et plages horaires."
       }
     }
   }

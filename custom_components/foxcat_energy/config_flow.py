@@ -62,6 +62,9 @@ from .const import (
     CONF_TARIFF_HP_END_2,
     CONF_TARIFF_HP_START_1,
     CONF_TARIFF_HP_START_2,
+    CONF_TARIFF_HP_PRICE,
+    CONF_TARIFF_HC_PRICE,
+    CONF_TARIFF_FIXED_INJECTION_PRICE,
     CONF_WASHER_CYCLE,
     CONF_WASHER_OFF_1,
     CONF_WASHER_OFF_2,
@@ -175,6 +178,29 @@ def _pricing_schema() -> vol.Schema:
             _optional(CONF_PRICE_MAX_TOMORROW, "sensor.luminus_luminus_dynamic_wallonia_maximum_demain"): _entity("sensor"),
             _optional(CONF_PRICE_AVG_TOMORROW, "sensor.luminus_luminus_dynamic_wallonia_moyenne_demain"): _entity("sensor"),
             _optional(CONF_PRICE_TOMORROW_AVAILABLE, "binary_sensor.luminus_luminus_dynamic_wallonia_prix_de_demain_disponibles"): _entity("binary_sensor"),
+        }
+    )
+
+
+def _price_number(default: float, minimum: float = 0.0, maximum: float = 2.0) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=minimum,
+            max=maximum,
+            step=0.001,
+            mode=selector.NumberSelectorMode.BOX,
+            unit_of_measurement="€/kWh",
+        )
+    )
+
+
+def _hphc_schema() -> vol.Schema:
+    """Fixed / dual-rate tariff values configured by the installer/user."""
+    return vol.Schema(
+        {
+            vol.Optional(CONF_TARIFF_HP_PRICE, default=0.0): _price_number(0.0),
+            vol.Optional(CONF_TARIFF_HC_PRICE, default=0.0): _price_number(0.0),
+            vol.Optional(CONF_TARIFF_FIXED_INJECTION_PRICE, default=0.0): _price_number(0.0, -1.0, 2.0),
             vol.Optional(CONF_TARIFF_HP_START_1, default="07:00:00"): selector.TimeSelector(),
             vol.Optional(CONF_TARIFF_HP_END_1, default="11:00:00"): selector.TimeSelector(),
             vol.Optional(CONF_TARIFF_HP_START_2, default="17:00:00"): selector.TimeSelector(),
@@ -208,6 +234,7 @@ _SCHEMA_BUILDERS = {
     "pri": _pri_schema,
     "machines": _machines_schema,
     "pricing": _pricing_schema,
+    "hphc": _hphc_schema,
     "solar": _solar_schema,
 }
 
@@ -265,8 +292,14 @@ class FoxCatEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_pricing(self, user_input=None):
         if user_input is not None:
             self._data.update(_normalise_input(user_input))
-            return await self.async_step_solar()
+            return await self.async_step_hphc()
         return self.async_show_form(step_id="pricing", data_schema=_pricing_schema())
+
+    async def async_step_hphc(self, user_input=None):
+        if user_input is not None:
+            self._data.update(_normalise_input(user_input))
+            return await self.async_step_solar()
+        return self.async_show_form(step_id="hphc", data_schema=_hphc_schema())
 
     async def async_step_solar(self, user_input=None):
         if user_input is not None:
@@ -308,13 +341,23 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
     def _effective(self) -> dict[str, Any]:
         data = dict(self.config_entry.data)
         data.update(self._ensure_pending())
+
+        # V1.2.2 migration: V1.2.0/1.2.1 stored HP/HC prices in the
+        # coordinator store because they were exposed only as number entities.
+        # If the ConfigEntry does not contain them yet, pre-fill the new page
+        # with the live values so existing user tuning is not lost.
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is not None:
+            for key in (CONF_TARIFF_HP_PRICE, CONF_TARIFF_HC_PRICE, CONF_TARIFF_FIXED_INJECTION_PRICE):
+                if key not in data and key in coordinator.settings:
+                    data[key] = coordinator.settings[key]
         return data
 
     async def async_step_init(self, user_input=None):
         self._ensure_pending()
         return self.async_show_menu(
             step_id="init",
-            menu_options=["core", "boiler", "pri", "machines", "pricing", "solar", "finish"],
+            menu_options=["core", "boiler", "pri", "machines", "pricing", "hphc", "solar", "finish"],
         )
 
     async def _section(self, step_id: str, user_input):
@@ -341,6 +384,9 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_pricing(self, user_input=None):
         return await self._section("pricing", user_input)
+
+    async def async_step_hphc(self, user_input=None):
+        return await self._section("hphc", user_input)
 
     async def async_step_solar(self, user_input=None):
         return await self._section("solar", user_input)

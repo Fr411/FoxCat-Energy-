@@ -67,6 +67,9 @@ from .const import (
     CONF_TARIFF_HP_END_1,
     CONF_TARIFF_HP_START_2,
     CONF_TARIFF_HP_END_2,
+    CONF_TARIFF_HP_PRICE,
+    CONF_TARIFF_HC_PRICE,
+    CONF_TARIFF_FIXED_INJECTION_PRICE,
     CONF_PRI_L1,
     CONF_PRI_L2,
     CONF_PRI_L3,
@@ -185,6 +188,12 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for key in (CONF_TARIFF_HP_START_1, CONF_TARIFF_HP_END_1, CONF_TARIFF_HP_START_2, CONF_TARIFF_HP_END_2):
             if key in self.config and self.config.get(key) not in (None, ""):
                 self.settings[key] = str(self.config[key])
+        for key in (CONF_TARIFF_HP_PRICE, CONF_TARIFF_HC_PRICE, CONF_TARIFF_FIXED_INJECTION_PRICE):
+            if key in self.config and self.config.get(key) not in (None, ""):
+                try:
+                    self.settings[key] = float(self.config[key])
+                except (TypeError, ValueError):
+                    pass
 
         self.settings["mode"] = MODE_ALIASES.get(str(self.settings.get("mode")), str(self.settings.get("mode")))
         self._register_listeners()
@@ -425,6 +434,10 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         regime = str(self.settings.get("tariff_regime", TARIFF_COMPENSATION))
         period = tariff_period(dt_util.now(), self.settings)
 
+        hp_price = float(self.settings.get(CONF_TARIFF_HP_PRICE, 0.0))
+        hc_price = float(self.settings.get(CONF_TARIFF_HC_PRICE, 0.0))
+        fixed_injection = float(self.settings.get(CONF_TARIFF_FIXED_INJECTION_PRICE, 0.0))
+
         active_buy: float | None
         export_value: float | None
         if regime == TARIFF_DYNAMIC:
@@ -436,15 +449,13 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             status = price_status(current, pmin, pmax, avg)
             model = "DYNAMIQUE"
         else:
-            hp = float(self.settings.get("tariff_hp_price_eur_kwh", 0.0))
-            hc = float(self.settings.get("tariff_hc_price_eur_kwh", 0.0))
-            active_buy = hp if period == "HP" else hc
+            active_buy = hp_price if period == "HP" else hc_price
             if regime == TARIFF_COMPENSATION:
                 export_value = None
                 status = f"COMPENSATION · {period}"
                 model = "ESTIMATION_COMPENSATION"
             else:
-                export_value = float(self.settings.get("tariff_fixed_injection_eur_kwh", 0.0))
+                export_value = fixed_injection
                 status = period
                 model = "BIHORAIRE"
             if active_buy <= 0:
@@ -459,6 +470,9 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         negative_threshold = float(self.settings.get("dynamic_grid_charge_threshold_eur_kwh", 0.0))
         return {
+            "hp_price": hp_price,
+            "hc_price": hc_price,
+            "fixed_injection_price": fixed_injection,
             "current": current,
             "next": next_price,
             "injection": injection,
@@ -540,6 +554,18 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             )
 
         await self._async_save()
+
+        # HP/HC prices are configuration-backed since V1.2.2.  Keep the
+        # editable number entities for backwards compatibility, but mirror any
+        # change they make into ConfigEntry options so the dedicated tariff
+        # page and the entities always survive restarts with the same value.
+        if key in {CONF_TARIFF_HP_PRICE, CONF_TARIFF_HC_PRICE, CONF_TARIFF_FIXED_INJECTION_PRICE}:
+            options = dict(self.entry.options)
+            if options.get(key) != value:
+                options[key] = value
+                self.config[key] = value
+                self.hass.config_entries.async_update_entry(self.entry, options=options)
+
         self.async_set_updated_data(self._build_data())
 
     async def async_set_mode(self, mode: str) -> None:

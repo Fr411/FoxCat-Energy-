@@ -1,4 +1,4 @@
-# FoxCat Energy 1.2.0
+# FoxCat Energy 1.2.2
 
 Custom component Home Assistant pour l'EMS FoxCat Energy. Cette version restructure les modes EMS, corrige la reconfiguration, renforce le PRI zéro injection et ajoute un véritable contexte tarifaire.
 
@@ -15,6 +15,18 @@ L'intégration conserve **Régulation FoxCat active = OFF** lors d'une première
 5. Désactiver les anciennes automatisations qui commandent directement boiler / PRI / machines avant d'activer la régulation FoxCat.
 
 FoxCat ne supprime pas les anciens helpers ni les anciennes automatisations.
+
+## Nouveau en V1.2.2 — page Tarifs HP/HC
+
+La reconfiguration sépare maintenant **Tarification dynamique** et **Tarifs HP/HC**.
+Dans **Reconfigurer → Tarifs HP/HC**, l’utilisateur peut saisir directement :
+
+- le prix d’achat heures pleines (HP) en €/kWh TVAC ;
+- le prix d’achat heures creuses (HC) en €/kWh TVAC ;
+- le prix fixe de réinjection ;
+- les deux plages horaires HP.
+
+FoxCat expose aussi trois capteurs dédiés sur le device **Tarification** : **Prix heures pleines (HP)**, **Prix heures creuses (HC)** et **Prix fixe de réinjection**. Les anciens `number` de réglage restent présents pour compatibilité et sont synchronisés avec la configuration.
 
 ## Reconfiguration V1.2.0
 

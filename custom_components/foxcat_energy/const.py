@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 DOMAIN = "foxcat_energy"
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
 
 # Configuration keys
@@ -57,6 +57,9 @@ CONF_TARIFF_HP_START_1 = "tariff_hp_start_1"
 CONF_TARIFF_HP_END_1 = "tariff_hp_end_1"
 CONF_TARIFF_HP_START_2 = "tariff_hp_start_2"
 CONF_TARIFF_HP_END_2 = "tariff_hp_end_2"
+CONF_TARIFF_HP_PRICE = "tariff_hp_price_eur_kwh"
+CONF_TARIFF_HC_PRICE = "tariff_hc_price_eur_kwh"
+CONF_TARIFF_FIXED_INJECTION_PRICE = "tariff_fixed_injection_eur_kwh"
 
 CONF_AI_TASK = "ai_task"
 CONF_FORECAST_NOW = "forecast_now"
