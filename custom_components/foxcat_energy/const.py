@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 DOMAIN = "foxcat_energy"
-VERSION = "1.1.0"
+VERSION = "1.2.1"
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
 
 # Configuration keys
@@ -52,6 +52,12 @@ CONF_PRICE_MAX_TOMORROW = "price_max_tomorrow"
 CONF_PRICE_AVG_TOMORROW = "price_avg_tomorrow"
 CONF_PRICE_TOMORROW_AVAILABLE = "price_tomorrow_available"
 
+# Configuration des plages tarifaires fixes / compensation.
+CONF_TARIFF_HP_START_1 = "tariff_hp_start_1"
+CONF_TARIFF_HP_END_1 = "tariff_hp_end_1"
+CONF_TARIFF_HP_START_2 = "tariff_hp_start_2"
+CONF_TARIFF_HP_END_2 = "tariff_hp_end_2"
+
 CONF_AI_TASK = "ai_task"
 CONF_FORECAST_NOW = "forecast_now"
 CONF_FORECAST_THIS_HOUR = "forecast_this_hour"
@@ -69,18 +75,28 @@ MODE_ECO = "Économie énergie"
 MODE_ZERO = "Zéro injection"
 MODE_ECS = "ECS solaire"
 MODE_DYNAMIC = "Prix dynamique"
-MODE_COMFORT = "Confort"
 MODE_MANUAL = "Manuel"
-MODES = [MODE_ECO, MODE_ZERO, MODE_ECS, MODE_DYNAMIC, MODE_COMFORT, MODE_MANUAL]
+MODES = [MODE_ECO, MODE_ZERO, MODE_ECS, MODE_DYNAMIC, MODE_MANUAL]
+
+TARIFF_DYNAMIC = "Dynamique"
+TARIFF_COMPENSATION = "Compensation"
+TARIFF_TOU = "Bi-horaire HP/HC"
+TARIFF_REGIMES = [TARIFF_DYNAMIC, TARIFF_COMPENSATION, TARIFF_TOU]
 MODE_ALIASES = {
     "Economie énergie": MODE_ECO,
     "Économie énergie": MODE_ECO,
     "Zéro injection": MODE_ZERO,
+    "Réinjection refusée": MODE_ZERO,
     "ECS solaire": MODE_ECS,
     "Prix dynamique": MODE_DYNAMIC,
-    "Confort": MODE_COMFORT,
+    "Tarification dynamique": MODE_DYNAMIC,
+    # Migration volontaire : le mode Confort disparaît en V1.2.0.
+    # Un ancien réglage Confort est ramené en Manuel pour ne déclencher
+    # aucune stratégie automatique sans choix explicite de l'utilisateur.
+    "Confort": MODE_MANUAL,
     "Manuel": MODE_MANUAL,
     "Maxi solaire": MODE_ECS,
+    "Réinjection autorisée": MODE_ECO,
 }
 
 BOILER_NONE = "AUCUNE"
@@ -124,6 +140,15 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "dryer_enabled": True,
     "dishwasher_enabled": True,
     "solar_advisor_enabled": True,
+    "dynamic_negative_price_charge_enabled": True,
+    "tariff_regime": TARIFF_COMPENSATION,
+    "tariff_hp_price_eur_kwh": 0.0,
+    "tariff_hc_price_eur_kwh": 0.0,
+    "tariff_fixed_injection_eur_kwh": 0.0,
+    "tariff_hp_start_1": "07:00:00",
+    "tariff_hp_end_1": "11:00:00",
+    "tariff_hp_start_2": "17:00:00",
+    "tariff_hp_end_2": "22:00:00",
     "boiler_power_w": 1800.0,
     "boiler_temp_start_c": 43.0,
     "boiler_temp_normal_c": 45.0,
@@ -164,6 +189,8 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "solar_window_min_minutes": 30.0,
     "dynamic_price_significant_delta": 0.01,
     "dynamic_injection_lucrative_threshold": -0.0001,
+    "dynamic_grid_charge_threshold_eur_kwh": 0.0,
+    "pri_boiler_settle_s": 30.0,
 }
 
 NUMBER_DEFINITIONS = {
@@ -206,6 +233,11 @@ NUMBER_DEFINITIONS = {
     "solar_window_min_minutes": ("Durée minimale fenêtre solaire", 5, 240, 5, "min", "mdi:timeline-clock-outline"),
     "dynamic_price_significant_delta": ("Écart de prix significatif", 0, 1, 0.001, "€/kWh", "mdi:cash-sync"),
     "dynamic_injection_lucrative_threshold": ("Seuil injection rémunératrice", -1, 1, 0.0001, "€/kWh", "mdi:cash-plus"),
+    "dynamic_grid_charge_threshold_eur_kwh": ("Seuil charge réseau prix négatif", -1, 0, 0.001, "€/kWh", "mdi:transmission-tower-import"),
+    "tariff_hp_price_eur_kwh": ("Prix achat heures pleines", 0, 2, 0.001, "€/kWh", "mdi:cash-clock"),
+    "tariff_hc_price_eur_kwh": ("Prix achat heures creuses", 0, 2, 0.001, "€/kWh", "mdi:cash-clock"),
+    "tariff_fixed_injection_eur_kwh": ("Prix fixe de réinjection", -1, 2, 0.001, "€/kWh", "mdi:cash-plus"),
+    "pri_boiler_settle_s": ("Temporisation PRI après action boiler", 0, 180, 5, "s", "mdi:timer-sync-outline"),
 }
 
 SWITCH_DEFINITIONS = {
@@ -218,6 +250,7 @@ SWITCH_DEFINITIONS = {
     "dryer_enabled": ("Gestion sèche-linge", "mdi:tumble-dryer"),
     "dishwasher_enabled": ("Gestion lave-vaisselle", "mdi:dishwasher"),
     "solar_advisor_enabled": ("Conseiller solaire EMS 2", "mdi:weather-sunny-alert"),
+    "dynamic_negative_price_charge_enabled": ("Charge réseau si prix dynamique négatif", "mdi:transmission-tower-import"),
 }
 
 # Legacy helpers are read only once at first setup to preserve the user's existing tuning.

@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, PLATFORMS
-from .coordinator import FoxCatEnergyCoordinator
+
+if TYPE_CHECKING:
+    from .coordinator import FoxCatEnergyCoordinator
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Keep package import lightweight.  config_flow.py is imported by Home
+    # Assistant before the integration is set up; importing the coordinator at
+    # module import time made any coordinator/platform incompatibility prevent
+    # the ConfigFlow handler from registering ("Invalid handler specified").
+    from .coordinator import FoxCatEnergyCoordinator
+
     hass.data.setdefault(DOMAIN, {})
     coordinator = FoxCatEnergyCoordinator(hass, entry)
     hass.data[DOMAIN][entry.entry_id] = coordinator
@@ -20,7 +30,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        coordinator: FoxCatEnergyCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
+        coordinator = hass.data[DOMAIN].pop(entry.entry_id)
         await coordinator.async_shutdown()
     return unload_ok
 
