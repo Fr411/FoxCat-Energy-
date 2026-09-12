@@ -1,11 +1,29 @@
-FOXCAT ENERGY 1.1.0 — INSTALLATION
+FOXCAT ENERGY 1.2.0 — INSTALLATION / MISE À JOUR
 
-1. Copier le dossier custom_components/foxcat_energy dans /config/custom_components/ de Home Assistant.
+MISE À JOUR DEPUIS 1.1.0 VIA HACS
+1. Remplacer le contenu du dépôt GitHub par le contenu du ZIP HACS 1.2.0 en conservant custom_components/ à la racine.
+2. Publier/committer les changements sur la branche main.
+3. Dans HACS, actualiser les informations puis installer la nouvelle version.
+4. Redémarrer complètement Home Assistant.
+5. Paramètres > Appareils et services > FoxCat Energy > Reconfigurer.
+6. Vérifier la section Tarification et terminer avec « Enregistrer et quitter ».
+7. Vérifier le nouveau sélecteur « Régime tarifaire » et les prix HP/HC.
+8. Laisser « Régulation FoxCat active » sur OFF pendant le premier contrôle.
+
+PREMIÈRE INSTALLATION
+1. Copier custom_components/foxcat_energy dans /config/custom_components/.
 2. Redémarrer Home Assistant.
 3. Paramètres > Appareils et services > Ajouter une intégration > FoxCat Energy.
 4. Associer les entités demandées.
-5. Laisser « Régulation FoxCat active » sur OFF pour la première validation.
-6. Vérifier les capteurs, le diagnostic et la table RRCR.
-7. Désactiver les anciennes automatisations qui commandent les mêmes équipements AVANT d'activer la régulation Python.
+5. Vérifier le diagnostic et les retours RRCR.
+6. Désactiver les anciennes automatisations qui pilotent les mêmes équipements avant d'activer la régulation Python.
 
-Rollback immédiat : Régulation FoxCat active = OFF, puis bouton « Libérer l'onduleur à 100 % ».
+IMPORTANT V1.2.0
+- Le mode Confort a été retiré. Un ancien état Confort est migré vers Manuel.
+- Manuel désactive désormais le pilotage automatique du boiler, du PRI et des prises machines ; la sécurité thermique reste active.
+- Prix dynamique exige « Régime tarifaire = Dynamique ».
+- Prix dynamique peut charger le boiler sur le réseau jusqu'à 65 °C lorsque le prix d'achat passe sous 0 €/kWh par défaut.
+- Les prix HP/HC sont à encoder : ils restent volontairement à 0 tant qu'ils ne sont pas configurés.
+
+ROLLBACK IMMÉDIAT
+Régulation FoxCat active = OFF, puis bouton « Libérer l'onduleur à 100 % », puis retour à la V1.1.0 si nécessaire.
