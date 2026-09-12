@@ -19,6 +19,8 @@ def _device_for(key: str) -> str:
         return "machines"
     if key == "solar_advisor_enabled":
         return "solar"
+    if key.startswith("dynamic_"):
+        return "pricing"
     return "ems"
 
 

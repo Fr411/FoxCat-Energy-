@@ -1,0 +1,16 @@
+FoxCat Energy 1.2.0 -> 1.2.1
+
+Fichiers à remplacer :
+- custom_components/foxcat_energy/__init__.py
+- custom_components/foxcat_energy/config_flow.py
+- custom_components/foxcat_energy/const.py
+- custom_components/foxcat_energy/manifest.json
+
+Fichier ajouté à la racine du dépôt :
+- CHANGELOG_1.2.1.md
+
+Aucun fichier du moteur énergétique n'est modifié :
+- coordinator.py : inchangé
+- engine/* : inchangé
+- sensor.py / binary_sensor.py / switch.py / select.py / number.py / button.py : inchangés
+- strings.json / translations/fr.json : inchangés
