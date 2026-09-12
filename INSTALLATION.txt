@@ -1,0 +1,11 @@
+FOXCAT ENERGY 1.1.0 — INSTALLATION
+
+1. Copier le dossier custom_components/foxcat_energy dans /config/custom_components/ de Home Assistant.
+2. Redémarrer Home Assistant.
+3. Paramètres > Appareils et services > Ajouter une intégration > FoxCat Energy.
+4. Associer les entités demandées.
+5. Laisser « Régulation FoxCat active » sur OFF pour la première validation.
+6. Vérifier les capteurs, le diagnostic et la table RRCR.
+7. Désactiver les anciennes automatisations qui commandent les mêmes équipements AVANT d'activer la régulation Python.
+
+Rollback immédiat : Régulation FoxCat active = OFF, puis bouton « Libérer l'onduleur à 100 % ».
