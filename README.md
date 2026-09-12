@@ -1,85 +1,160 @@
-# FoxCat Energy 1.1.0
+# FoxCat Energy 1.2.0
 
-Custom component Home Assistant destiné à encapsuler l'EMS FoxCat fourni dans les automatisations de référence : CORE V8.2, ECS solaire V1.7, Prix dynamique V1, EMS 2 prédictif, vérificateur souverain d'exécution et PRI V3.0.
+Custom component Home Assistant pour l'EMS FoxCat Energy. Cette version restructure les modes EMS, corrige la reconfiguration, renforce le PRI zéro injection et ajoute un véritable contexte tarifaire.
+
+**Statut : À TESTER sur installation réelle avant validation.**
 
 ## Important avant activation
 
-L'intégration s'installe avec **Régulation FoxCat active = OFF**. Elle commence donc en télémétrie uniquement. Cela évite qu'elle commande en même temps que les anciennes automatisations.
+L'intégration conserve **Régulation FoxCat active = OFF** lors d'une première installation. Elle peut ainsi être observée avant de lui donner le contrôle physique.
 
-1. Installer le dossier `custom_components/foxcat_energy` dans `/config/custom_components/`.
-2. Redémarrer Home Assistant.
-3. Aller dans **Paramètres → Appareils et services → Ajouter une intégration → FoxCat Energy**.
-4. Vérifier les entités proposées dans les six étapes de configuration.
-5. Vérifier les capteurs FoxCat créés et lancer **Lancer un diagnostic EMS**.
-6. Désactiver les anciennes automatisations qui commandent le boiler, les prises ou le PRI avant de passer la nouvelle entité **Régulation FoxCat active** sur ON.
+1. Installer `custom_components/foxcat_energy` dans `/config/custom_components/` ou mettre à jour via HACS.
+2. Redémarrer complètement Home Assistant.
+3. Ouvrir **Paramètres → Appareils et services → FoxCat Energy**.
+4. Vérifier les associations d'entités et la section **Tarification**.
+5. Désactiver les anciennes automatisations qui commandent directement boiler / PRI / machines avant d'activer la régulation FoxCat.
 
-L'intégration ne supprime, ne désactive et ne modifie automatiquement aucune ancienne automatisation ou helper.
+FoxCat ne supprime pas les anciens helpers ni les anciennes automatisations.
+
+## Reconfiguration V1.2.0
+
+Le flux **Reconfigurer** a été rendu transactionnel : les modifications restent locales tant que l'utilisateur n'a pas choisi **Enregistrer et quitter**. Le `ConfigEntry` n'est plus rechargé au milieu du flux, ce qui évite le `500 Internal Server Error` observé en V1.1.0.
+
+Les options modifiées sont stockées dans `entry.options`; la configuration effective est `entry.data + entry.options`.
+
+## Architecture des modes EMS
+
+La V1.2.0 conserve cinq modes :
+
+### Économie énergie
+
+Mode hybride :
+
+- pilote le boiler ;
+- utilise le surplus solaire utile avant bridage ;
+- permet un stockage opportuniste jusqu'à 65 °C lorsque le boiler est couvert par le solaire ;
+- conserve le confort minimal 45 °C en HC ;
+- interdit l'achat volontaire du boiler en HP ;
+- pilote aussi le PRI sur le surplus résiduel avec la logique zéro injection réseau ;
+- temporise le PRI après une action boiler afin de laisser le réseau se stabiliser.
+
+### ECS solaire
+
+La logique métier de la V1.1 est conservée : cycle minimum, failback thermique, HC jour/nuit, HP sans achat volontaire, transition 45 → 65 et boost solaire. Le PRI automatique est libéré à 100 %.
+
+### Zéro injection
+
+Le PRI est piloté par la **réinjection réseau réelle**. La consommation maison n'est plus une cible de commande et reste seulement un diagnostic.
+
+FoxCat recherche :
+
+- un zéro total si une marche RRCR de 10 % le permet sans import excessif ;
+- un zéro partiel stable si la granularité de 400 W rend le zéro exact impossible ;
+- une remontée uniquement si elle ne recrée pas une réinjection excessive ;
+- un rollback si une remontée réelle produit trop d'export.
+
+### Prix dynamique
+
+Le mode n'est autorisé que si **Régime tarifaire = Dynamique**.
+
+Il analyse :
+
+- prix actuel ;
+- prix suivant ;
+- minimum / maximum / moyenne du jour ;
+- prix de réinjection dynamique ;
+- potentiel solaire ;
+- état thermique du boiler.
+
+Priorités : sécurité → machines protégées → prix négatif → solaire utile → arbitrage financier min/max/tendance.
+
+#### Charge réseau lorsque le prix devient négatif
+
+Nouveau en V1.2.0 : si le prix d'achat dynamique devient **strictement inférieur au seuil configuré** (0 €/kWh par défaut), FoxCat est autorisé à tirer sur le réseau et à charger le boiler jusqu'à la cible de stockage 65 °C, sous réserve des sécurités et priorités machines.
+
+Entités associées :
+
+- **Charge réseau si prix dynamique négatif** : activation / désactivation ;
+- **Seuil charge réseau prix négatif** : 0 €/kWh par défaut ;
+- **Prix dynamique négatif actif** : état diagnostique.
+
+Le solaire reste prioritaire hors ce cas financier explicite. Le PRI tient en parallèle compte de la valeur de réinjection : injection intéressante → libération progressive ; injection défavorable → limitation de l'excédent.
+
+### Manuel
+
+Handover complet :
+
+- aucune stratégie boiler automatique ;
+- aucun PRI automatique ;
+- aucun planning automatique des prises machines ;
+- l'utilisateur pilote directement le climate boiler et les prises ;
+- un sélecteur **Niveau PRI manuel** permet 0 / 10 / … / 100 % ;
+- la sécurité thermique dure reste active.
+
+Lors de l'entrée en Manuel, le PRI est d'abord remis à 100 % comme état sûr, puis l'utilisateur reprend la main.
+
+### Suppression du mode Confort
+
+Le mode **Confort** disparaît de la liste. Une installation V1.1 enregistrée sur `Confort` est migrée prudemment vers **Manuel** afin de ne lancer aucune stratégie automatique sans choix explicite.
+
+## Régime tarifaire indépendant du mode EMS
+
+Nouvelle entité : **Régime tarifaire**.
+
+Valeurs :
+
+- `Compensation`
+- `Bi-horaire HP/HC`
+- `Dynamique`
+
+Le mode EMS décrit **comment FoxCat agit** ; le régime tarifaire décrit **comment l'énergie est facturée**.
+
+Le mode **Prix dynamique** est bloqué si le régime n'est pas `Dynamique`.
+
+## Tarification HP / HC
+
+Les deux plages HP sont configurables dans **Reconfigurer → Tarification**. Valeurs AIESH par défaut :
+
+- HP1 : 07:00 → 11:00
+- HP2 : 17:00 → 22:00
+- HC : le reste
+
+Entités `number` de tarification :
+
+- **Prix achat heures pleines** ;
+- **Prix achat heures creuses** ;
+- **Prix fixe de réinjection**.
+
+Les valeurs de prix sont laissées à 0 par défaut afin de ne pas inventer le contrat du client ; le statut indique **PRIX À CONFIGURER** tant qu'elles ne sont pas renseignées.
+
+## Statut prix et coûts
+
+Le device **FoxCat Energy – Tarification** expose notamment :
+
+- régime tarifaire actif ;
+- période HP / HC ;
+- statut du prix (`NÉGATIF`, `TRÈS BAS`, `BAS`, `NORMAL`, `ÉLEVÉ`, `TRÈS ÉLEVÉ`) ;
+- prix d'achat actif ;
+- valeur économique normalisée de la réinjection ;
+- coût instantané du prélèvement en €/h ;
+- valeur instantanée de la réinjection en €/h ;
+- solde financier instantané réseau en €/h.
+
+Sous compensation, le modèle est explicitement identifié comme **ESTIMATION_COMPENSATION** : un coût instantané ne remplace pas le décompte annuel de compensation.
 
 ## Contrat énergétique
 
-- Production PV : valeur positive en W.
-- Consommation maison : valeur positive en W.
-- Réinjection compteur : valeur positive en W.
-- Prélèvement compteur : valeur positive en W.
+- Production PV : positive en W.
+- Consommation maison : positive en W.
+- Réinjection réseau : positive en W.
+- Prélèvement réseau : positif en W.
 - `balance réseau = réinjection - prélèvement`.
-- L'ancien capteur signé `sensor.retourne_au_reseau` est conservé uniquement comme champ de compatibilité et n'est pas utilisé comme vérité réseau par le moteur Python.
 
-## Migration contrôlée
+Le PRI zéro injection utilise le réseau physique comme arbitre. `sensor.consommation_reelle_maison` reste disponible pour diagnostic mais ne pilote plus directement le niveau RRCR en Zéro injection.
 
-- La régulation est **OFF par défaut**.
-- En sélectionnant **Économie énergie**, **Zéro injection** ou **Prix dynamique**, le switch logiciel PRI est armé automatiquement.
-- En quittant ces modes, le PRI est désarmé et, si la régulation est active, l'onduleur est libéré à 100 %.
-- Le compteur de cycle boiler est volontairement conservateur : seul `binary_sensor.boiler` fait foi pour la durée physique ; si de la puissance est détectée sans binaire ON, la durée connue vaut 0 s.
+## PRI SolarEdge RRCR
 
-## Modes
-
-### Économie énergie
-- Boiler : chauffe 45 °C en HC si nécessaire.
-- Aucun achat volontaire du boiler en HP.
-- PRI : moteur universel zéro réinjection.
-- Machines : deux plages horaires configurables par machine depuis l’onglet EMS Machines (valeurs par défaut 21:30–07:00 et 10:30–17:00), cycles protégés.
-
-### Zéro injection
-- Moteur PRI universel actif.
-- Pas de stratégie boiler propre au mode.
-- Le PRI est piloté directement par la réinjection réseau : si l’export dépasse le seuil acceptable, FoxCat descend d’une marche de 10 %. La consommation maison reste uniquement un repère diagnostique et ne commande plus le niveau PRI.
-
-### ECS solaire
-- Stratégie V1.7 : observation nocturne, charge initiale, stabilisation, failback thermique, HC jour, HP sans achat réseau volontaire, cycle minimum, transition 45 → 65 sans coupure, boost solaire.
-- PRI automatique libéré à 100 %.
-
-### Prix dynamique
-- Utilise les capteurs Luminus Dynamic configurés.
-- Priorité solaire, attente tarifaire, créneaux bas, garantie thermique, stockage solaire 65 °C si pertinent.
-- PRI dynamique : injection rémunératrice = libération vers 100 %. Injection défavorable = réduction d'une marche seulement si elle ne projette pas volontairement un import réseau.
-- Le réseau est calculé depuis les deux capteurs physiques compteur, pas depuis `PV - maison`.
-
-### Confort
-Le corpus fourni mentionnait ce mode mais ne contenait pas de stratégie dédiée. Pour rendre le composant complet, l'implémentation V1 garantit simplement 45 °C lorsque la température descend sous le seuil de reprise, avec les sécurités thermiques et machines toujours prioritaires. Le PRI automatique reste libéré.
-
-### Manuel
-Aucune stratégie automatique boiler/PRI. Les sécurités thermiques et la protection des machines restent actives. La gestion indépendante des prises machines reste active, comme dans l'architecture actuelle.
-
-## CORE souverain
-
-Le CORE suit une machine d'état :
-
-`ACQUISITION → DECISION → WAIT_ACK → ACQUISITION`
-
-`sensor.consommation_reelle_maison` est la seule horloge énergétique du CORE. Une trame mémorise T0, la suivante décide au maximum une action significative, et la trame suivante valide l'ACK réseau.
-
-## PRI SolarEdge
-
-Le moteur PRI est séparé du CORE chauffe-eau. En Zéro injection, la mesure réseau est l’arbitre :
-
-1. lecture de la réinjection/prélèvement ;
-2. décision sur le flux réseau réel ;
-3. une seule marche de 10 % ;
-4. ACK RRCR ;
-5. validation onduleur et réseau ;
-6. nouvelle correction uniquement si la réinjection ou le prélèvement reste hors zone.
-
-Table RRCR L4 L3 L2 L1 :
+Table L4 L3 L2 L1 :
 
 | Niveau | Code |
 |---:|:---:|
@@ -95,39 +170,32 @@ Table RRCR L4 L3 L2 L1 :
 | 10 % | 0001 |
 | 0 % | 1010 |
 
-Le moteur peut accepter un petit import ou un petit export. Par défaut : export idéal ≤ 50 W, import idéal ≤ 100 W, export acceptable ≤ 150 W et import acceptable ≤ 200 W. Les valeurs sont modifiables depuis les entités `number` créées par l'intégration.
+Une décision normale ne change qu'une marche de 10 %, puis attend les ACK RRCR / onduleur / réseau.
 
-## Fin solaire
+## EMS Machines
 
-En modes Économie énergie et Zéro injection, si la production PV reste sous 5 W pendant 180 secondes, FoxCat :
+Chaque machine conserve deux plages ON/OFF configurables. Un cycle déjà commencé n'est jamais interrompu en mode automatique.
 
-- libère l'onduleur à 100 % ;
-- annule le cycle PRI ;
-- bascule automatiquement le mode EMS vers **ECS solaire**.
+En **Manuel**, FoxCat ne commande plus les prises : l'utilisateur gère chaque machine directement.
 
-Les deux seuils sont réglables.
+## Structure moteur V1.2.0
 
-## EMS 2
+Les stratégies sont maintenant séparées :
 
-EMS 2 reste purement prédictif. Il s'exécute à 07:00, 10:30, 11:00, 15:00, 17:00 et 22:00 ainsi qu'avec le bouton **Analyser la prévision solaire**.
+```text
+engine/
+├── pri.py
+├── tariff.py
+└── modes/
+    ├── common.py
+    ├── eco.py
+    ├── ecs_solar.py
+    ├── zero_injection.py
+    ├── dynamic.py
+    └── manual.py
+```
 
-Si une entité `ai_task` est configurée, l'intégration appelle `ai_task.generate_data` avec une sortie structurée. Si le service n'est pas disponible ou échoue, un fallback local conservateur produit quand même un état consultatif à partir des capteurs Forecast.Solar.
-
-## Migration des anciens helpers
-
-Au tout premier démarrage, si les anciens helpers existent encore, FoxCat importe leurs valeurs pour les températures, tolérances, seuils, autorisations et mode EMS. Le switch maître **Régulation FoxCat active** n'est jamais activé automatiquement.
-
-## Entités principales créées
-
-- `select.foxcat_energy_mode_ems`
-- `switch.foxcat_energy_regulation_foxcat_active`
-- `switch.foxcat_energy_reduction_de_puissance_onduleur`
-- `switch.foxcat_energy_boiler_gere_par_foxcat`
-- capteurs CORE/ACK/PRI/réseau/boiler/EMS 2
-- réglages `number` en français
-- boutons diagnostic, reset, analyse solaire, libération onduleur et réconciliation machines
-
-Les entity_id exacts peuvent être suffixés par Home Assistant en cas de conflit avec une entité existante ; les `unique_id` restent stables.
+`engine/strategies.py` reste comme shim de compatibilité vers le nouveau routeur de modes.
 
 ## Retour arrière
 
@@ -135,6 +203,4 @@ Pour revenir immédiatement à l'ancien système :
 
 1. mettre **Régulation FoxCat active** sur OFF ;
 2. utiliser **Libérer l'onduleur à 100 %** si nécessaire ;
-3. réactiver les anciennes automatisations.
-
-Aucun helper ou YAML historique n'est supprimé par l'intégration.
+3. réactiver les anciennes automatisations ou réinstaller la V1.1.0.

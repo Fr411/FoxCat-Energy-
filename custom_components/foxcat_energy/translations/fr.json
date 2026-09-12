@@ -62,8 +62,8 @@
         }
       },
       "pricing": {
-        "title": "FoxCat Energy – Prix dynamique",
-        "description": "Capteurs tarifaires Luminus Dynamic. Cette section est optionnelle si le mode Prix dynamique n'est pas utilisé.",
+        "title": "FoxCat Energy – Tarification",
+        "description": "Configure les capteurs du contrat dynamique et les plages HP/HC. Le régime actif se choisit ensuite via l’entité « Régime tarifaire ». Les prix HP/HC et le prix fixe d’injection sont réglables dans les entités de tarification.",
         "data": {
           "price_current": "Prix actuel",
           "price_next": "Prix heure suivante",
@@ -74,7 +74,11 @@
           "price_min_tomorrow": "Minimum demain",
           "price_max_tomorrow": "Maximum demain",
           "price_avg_tomorrow": "Moyenne demain",
-          "price_tomorrow_available": "Prix de demain disponibles"
+          "price_tomorrow_available": "Prix de demain disponibles",
+          "tariff_hp_start_1": "Début heures pleines – plage 1",
+          "tariff_hp_end_1": "Fin heures pleines – plage 1",
+          "tariff_hp_start_2": "Début heures pleines – plage 2",
+          "tariff_hp_end_2": "Fin heures pleines – plage 2"
         }
       },
       "solar": {
@@ -101,15 +105,15 @@
     "step": {
       "init": {
         "title": "Reconfigurer FoxCat Energy",
-        "description": "Choisis la famille d'entités à modifier.",
+        "description": "Choisis la section à modifier. Les changements sont appliqués uniquement avec « Enregistrer et quitter ».",
         "menu_options": {
           "core": "Mesures principales",
           "boiler": "Boiler",
           "pri": "PRI SolarEdge",
           "machines": "Machines",
-          "pricing": "Prix dynamique",
+          "pricing": "Tarification",
           "solar": "EMS 2 solaire",
-          "finish": "Terminer"
+          "finish": "Enregistrer et quitter"
         }
       },
       "core": {
@@ -125,13 +129,13 @@
         "title": "EMS Machines – prises et horaires"
       },
       "pricing": {
-        "title": "Prix dynamique"
+        "title": "Tarification"
       },
       "solar": {
         "title": "EMS 2 solaire"
       },
       "finish": {
-        "title": "Terminer"
+        "title": "Enregistrer et quitter"
       }
     }
   }
