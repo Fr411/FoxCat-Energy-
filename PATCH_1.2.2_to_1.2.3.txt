@@ -1,0 +1,25 @@
+FoxCat Energy — fichiers modifiés/ajoutés V1.2.2 → V1.2.3
+
+MODIFIÉS
+- custom_components/foxcat_energy/manifest.json
+- custom_components/foxcat_energy/const.py
+- custom_components/foxcat_energy/config_flow.py
+- custom_components/foxcat_energy/coordinator.py
+- custom_components/foxcat_energy/sensor.py
+- custom_components/foxcat_energy/binary_sensor.py
+- custom_components/foxcat_energy/strings.json
+- custom_components/foxcat_energy/translations/fr.json
+- custom_components/foxcat_energy/engine/modes/eco.py
+- custom_components/foxcat_energy/engine/modes/ecs_solar.py
+- custom_components/foxcat_energy/engine/modes/dynamic.py
+- README.md
+
+AJOUTÉS
+- custom_components/foxcat_energy/engine/load_guard.py
+- CHANGELOG_1.2.3.md
+- PATCH_1.2.2_to_1.2.3.txt
+
+INCHANGÉS (moteur PRI notamment)
+- custom_components/foxcat_energy/engine/pri.py
+- custom_components/foxcat_energy/engine/modes/zero_injection.py
+- custom_components/foxcat_energy/engine/modes/manual.py

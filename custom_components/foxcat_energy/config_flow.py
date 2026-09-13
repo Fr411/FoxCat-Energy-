@@ -65,6 +65,9 @@ from .const import (
     CONF_TARIFF_HP_PRICE,
     CONF_TARIFF_HC_PRICE,
     CONF_TARIFF_FIXED_INJECTION_PRICE,
+    CONF_TARIFF_HP_PRICE_SENSOR,
+    CONF_TARIFF_HC_PRICE_SENSOR,
+    CONF_TARIFF_FIXED_INJECTION_PRICE_SENSOR,
     CONF_WASHER_CYCLE,
     CONF_WASHER_OFF_1,
     CONF_WASHER_OFF_2,
@@ -198,6 +201,9 @@ def _hphc_schema() -> vol.Schema:
     """Fixed / dual-rate tariff values configured by the installer/user."""
     return vol.Schema(
         {
+            _optional(CONF_TARIFF_HP_PRICE_SENSOR): _entity("sensor"),
+            _optional(CONF_TARIFF_HC_PRICE_SENSOR): _entity("sensor"),
+            _optional(CONF_TARIFF_FIXED_INJECTION_PRICE_SENSOR): _entity("sensor"),
             vol.Optional(CONF_TARIFF_HP_PRICE, default=0.0): _price_number(0.0),
             vol.Optional(CONF_TARIFF_HC_PRICE, default=0.0): _price_number(0.0),
             vol.Optional(CONF_TARIFF_FIXED_INJECTION_PRICE, default=0.0): _price_number(0.0, -1.0, 2.0),

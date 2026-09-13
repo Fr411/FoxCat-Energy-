@@ -70,6 +70,9 @@ from .const import (
     CONF_TARIFF_HP_PRICE,
     CONF_TARIFF_HC_PRICE,
     CONF_TARIFF_FIXED_INJECTION_PRICE,
+    CONF_TARIFF_HP_PRICE_SENSOR,
+    CONF_TARIFF_HC_PRICE_SENSOR,
+    CONF_TARIFF_FIXED_INJECTION_PRICE_SENSOR,
     CONF_PRI_L1,
     CONF_PRI_L2,
     CONF_PRI_L3,
@@ -103,6 +106,11 @@ from .const import (
     TARIFF_TOU,
 )
 from .engine import EnergySnapshot, SolarForecast, decide_dynamic, decide_zero, evaluate_mode
+from .engine.load_guard import (
+    boiler_surplus_before_load_w,
+    protected_cycle_boiler_allowed,
+    protected_cycle_boiler_allowed_stable,
+)
 from .engine.tariff import price_status, tariff_boundaries, tariff_period
 
 _LOGGER = logging.getLogger(__name__)
@@ -279,6 +287,9 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.config.get(CONF_PRICE_MIN_TODAY),
                 self.config.get(CONF_PRICE_MAX_TODAY),
                 self.config.get(CONF_PRICE_AVG_TODAY),
+                self.config.get(CONF_TARIFF_HP_PRICE_SENSOR),
+                self.config.get(CONF_TARIFF_HC_PRICE_SENSOR),
+                self.config.get(CONF_TARIFF_FIXED_INJECTION_PRICE_SENSOR),
             ]
             if eid
         ]
@@ -434,9 +445,23 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         regime = str(self.settings.get("tariff_regime", TARIFF_COMPENSATION))
         period = tariff_period(dt_util.now(), self.settings)
 
-        hp_price = float(self.settings.get(CONF_TARIFF_HP_PRICE, 0.0))
-        hc_price = float(self.settings.get(CONF_TARIFF_HC_PRICE, 0.0))
-        fixed_injection = float(self.settings.get(CONF_TARIFF_FIXED_INJECTION_PRICE, 0.0))
+        hp_manual = float(self.settings.get(CONF_TARIFF_HP_PRICE, 0.0))
+        hc_manual = float(self.settings.get(CONF_TARIFF_HC_PRICE, 0.0))
+        fixed_injection_manual = float(self.settings.get(CONF_TARIFF_FIXED_INJECTION_PRICE, 0.0))
+
+        hp_sensor_id = self.config.get(CONF_TARIFF_HP_PRICE_SENSOR)
+        hc_sensor_id = self.config.get(CONF_TARIFF_HC_PRICE_SENSOR)
+        fixed_injection_sensor_id = self.config.get(CONF_TARIFF_FIXED_INJECTION_PRICE_SENSOR)
+        hp_from_entity = self._optional_float_state(hp_sensor_id)
+        hc_from_entity = self._optional_float_state(hc_sensor_id)
+        fixed_injection_from_entity = self._optional_float_state(fixed_injection_sensor_id)
+
+        hp_price = hp_from_entity if hp_from_entity is not None else hp_manual
+        hc_price = hc_from_entity if hc_from_entity is not None else hc_manual
+        fixed_injection = fixed_injection_from_entity if fixed_injection_from_entity is not None else fixed_injection_manual
+        hp_source = hp_sensor_id if hp_from_entity is not None else "Valeur manuelle"
+        hc_source = hc_sensor_id if hc_from_entity is not None else "Valeur manuelle"
+        fixed_injection_source = fixed_injection_sensor_id if fixed_injection_from_entity is not None else "Valeur manuelle"
 
         active_buy: float | None
         export_value: float | None
@@ -473,6 +498,9 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "hp_price": hp_price,
             "hc_price": hc_price,
             "fixed_injection_price": fixed_injection,
+            "hp_price_source": hp_source,
+            "hc_price_source": hc_source,
+            "fixed_injection_price_source": fixed_injection_source,
             "current": current,
             "next": next_price,
             "injection": injection,
@@ -670,6 +698,22 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_command_boiler(BOILER_STOP, "SÉCURITÉ CORE : température boiler maximale atteinte.", "SECURITE")
             return
 
+        # Un cycle machine protégé conserve la priorité, mais il ne condamne
+        # plus le boiler par principe. Le boiler peut continuer si le surplus
+        # réellement disponible après la machine couvre sa puissance.
+        if (
+            str(self.settings.get("mode")) != MODE_MANUAL
+            and snapshot.boiler_on
+            and snapshot.machine_active
+            and not protected_cycle_boiler_allowed(snapshot, self.settings)
+        ):
+            await self.async_command_boiler(
+                BOILER_STOP,
+                "Cycle machine protégé : surplus solaire insuffisant pour alimenter simultanément le boiler.",
+                "MACHINE",
+            )
+            return
+
         phase = self.core_state["phase"]
         if phase == PHASE_ACQUISITION:
             self.core_state["t0"] = snapshot
@@ -721,6 +765,19 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.prices(),
             self.solar_forecast,
         )
+
+        if (
+            intent.action in {BOILER_HEAT_45, BOILER_BOOST_65}
+            and snapshot.machine_active
+            and not protected_cycle_boiler_allowed_stable(snapshot, t0, self.settings)
+        ):
+            available = max(snapshot.grid_net_w + (snapshot.boiler_power_w if snapshot.boiler_on else 0.0), 0.0)
+            required = float(self.settings["boiler_power_w"])
+            self.reset_core(
+                f"Cycle machine protégé : boiler en attente, surplus disponible {available:.0f} W < {required:.0f} W requis."
+            )
+            return
+
         self.core_state["boiler_demand"] = intent.action
         self.core_state["boiler_origin"] = intent.origin
         self.core_state["last_reason"] = intent.reason
@@ -872,7 +929,9 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         command_on = not (command.startswith("BOILER_OFF") or command == "ECS_MODULE_OFF")
         if not command_on:
             return False
-        if not bool(self.settings["boiler_enabled"]) or snap.machine_active or snap.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
+        if not bool(self.settings["boiler_enabled"]) or snap.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
+            return True
+        if snap.machine_active and not protected_cycle_boiler_allowed(snap, self.settings):
             return True
         if str(self.settings.get("mode")) == MODE_MANUAL:
             return True
@@ -900,8 +959,17 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # La sécurité thermique dure reste active même en Manuel.
             if snap.boiler_on and snap.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
                 await self.async_command_boiler(BOILER_STOP, "SÉCURITÉ : température boiler maximale atteinte.", "SECURITE")
-            elif mode != MODE_MANUAL and snap.boiler_on and snap.machine_active:
-                await self.async_command_boiler(BOILER_STOP, "Machine protégée démarrée : boiler libéré immédiatement.", "MACHINE")
+            elif (
+                mode != MODE_MANUAL
+                and snap.boiler_on
+                and snap.machine_active
+                and not protected_cycle_boiler_allowed(snap, self.settings)
+            ):
+                await self.async_command_boiler(
+                    BOILER_STOP,
+                    "Cycle machine protégé : surplus solaire insuffisant pour maintenir le boiler.",
+                    "MACHINE",
+                )
             if mode != MODE_MANUAL:
                 await self.async_reconcile_machines()
         self.async_set_updated_data(self._build_data(snap))
@@ -1392,6 +1460,11 @@ Cherche une fenêtre solaire exploitable avant la prochaine échéance énergét
             "solar": self.solar_forecast,
             "prices": self.prices(),
             "legacy_conflict": self._legacy_conflict(),
+            "machine_guard": {
+                "active": snap.machine_active,
+                "boiler_surplus_available_w": boiler_surplus_before_load_w(snap),
+                "boiler_allowed": protected_cycle_boiler_allowed(snap, self.settings),
+            },
             "machine_window": {
                 "lave_linge": self._machine_allowed("washer", dt_util.now()),
                 "seche_linge": self._machine_allowed("dryer", dt_util.now()),

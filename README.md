@@ -216,3 +216,11 @@ Pour revenir immédiatement à l'ancien système :
 1. mettre **Régulation FoxCat active** sur OFF ;
 2. utiliser **Libérer l'onduleur à 100 %** si nécessaire ;
 3. réactiver les anciennes automatisations ou réinstaller la V1.1.0.
+
+## V1.2.3 — cycles protégés et tarifs HP/HC par entités
+
+Un cycle machine protégé ne coupe plus automatiquement le chauffe-eau. FoxCat laisse la machine prioritaire mais autorise le chauffe-eau si le surplus solaire réellement disponible après la machine couvre sa puissance nominale. Si le surplus devient insuffisant, le chauffe-eau est arrêté dans les modes automatiques. Le mode Manuel reste un handover complet, hormis les sécurités thermiques dures.
+
+Dans **Reconfigurer → Tarifs HP/HC**, les prix HP et HC peuvent maintenant venir directement d'entités Home Assistant, comme les prix du contrat dynamique. Les valeurs manuelles restent des valeurs de secours. La même possibilité existe pour le prix fixe de réinjection.
+
+La prochaine évolution structurelle prévue est un registre d'appareils extensible par capacités : charge ON/OFF, cycle protégé, stockage thermique, batterie à charge variable, mesure de puissance, consigne modulable, SOC, priorité et contraintes horaires. Cette architecture n'est pas activée dans la V1.2.3 : elle fera l'objet d'une version dédiée afin de conserver un arbitre énergétique sûr et testable.

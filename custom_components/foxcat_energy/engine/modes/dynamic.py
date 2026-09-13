@@ -17,7 +17,7 @@ def evaluate_dynamic(
 ) -> BoilerIntent:
     """Mode financier dynamique.
 
-    Priorités : sécurité > machine > prix négatif réseau > solaire utile >
+    Priorités : sécurité > garde cycle protégé du CORE > prix négatif réseau > solaire utile >
     optimisation min/max/tendance. Un prix d'achat strictement inférieur au
     seuil configuré autorise explicitement un chargement ECS sur le réseau
     jusqu'au niveau de stockage 65 °C.
@@ -30,8 +30,6 @@ def evaluate_dynamic(
         )
     if not bool(settings["boiler_enabled"]):
         return BoilerIntent(BOILER_STOP, "Boiler désactivé dans FoxCat.", "SECURITE")
-    if snapshot.machine_active:
-        return BoilerIntent(BOILER_STOP, "Cycle machine protégé. Boiler cède la priorité.", "MACHINE")
     if snapshot.boiler_temp_c >= float(settings["boiler_temp_safety_c"]):
         return BoilerIntent(BOILER_STOP, "Sécurité thermique boiler.", "SECURITE")
 

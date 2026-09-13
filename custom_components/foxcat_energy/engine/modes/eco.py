@@ -33,8 +33,6 @@ def evaluate_eco(
         return BoilerIntent(BOILER_STOP, "Économie énergie : boiler désactivé.", "SECURITE")
     if snapshot.boiler_temp_c >= safety:
         return BoilerIntent(BOILER_STOP, "Économie énergie : sécurité thermique atteinte.", "SECURITE")
-    if snapshot.machine_active:
-        return BoilerIntent(BOILER_STOP, "Économie énergie : machine protégée prioritaire.", "MACHINE")
     if snapshot.boiler_temp_c >= boost:
         return BoilerIntent(BOILER_STOP, "Économie énergie : stockage ECS 65 °C terminé.", "ECO")
 
