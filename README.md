@@ -1,226 +1,744 @@
-# FoxCat Energy 1.2.2
+FoxCat Energy
 
-Custom component Home Assistant pour l'EMS FoxCat Energy. Cette version restructure les modes EMS, corrige la reconfiguration, renforce le PRI zéro injection et ajoute un véritable contexte tarifaire.
+Home Energy Management System (HEMS) pour Home Assistant
 
-**Statut : À TESTER sur installation réelle avant validation.**
+FoxCat Energy est un système de gestion énergétique résidentielle conçu pour valoriser localement l’énergie disponible, piloter les charges flexibles et adapter la production photovoltaïque lorsque la réinjection n’est pas économiquement intéressante.
 
-## Important avant activation
+Qu’est-ce que FoxCat Energy exactement ?
 
-L'intégration conserve **Régulation FoxCat active = OFF** lors d'une première installation. Elle peut ainsi être observée avant de lui donner le contrôle physique.
+FoxCat Energy n’est pas un simple tableau de bord énergétique, ni une automatisation unique.
 
-1. Installer `custom_components/foxcat_energy` dans `/config/custom_components/` ou mettre à jour via HACS.
-2. Redémarrer complètement Home Assistant.
-3. Ouvrir **Paramètres → Appareils et services → FoxCat Energy**.
-4. Vérifier les associations d'entités et la section **Tarification**.
-5. Désactiver les anciennes automatisations qui commandent directement boiler / PRI / machines avant d'activer la régulation FoxCat.
+C’est un moteur de gestion énergétique qui observe en permanence la maison, prend des décisions selon un mode EMS choisi par l’utilisateur, commande les équipements autorisés et vérifie que les ordres ont réellement produit l’effet attendu.
 
-FoxCat ne supprime pas les anciens helpers ni les anciennes automatisations.
+Son objectif n’est pas de produire le maximum à tout prix.
 
-## Nouveau en V1.2.2 — page Tarifs HP/HC
+La logique recherchée est :
 
-La reconfiguration sépare maintenant **Tarification dynamique** et **Tarifs HP/HC**.
-Dans **Reconfigurer → Tarifs HP/HC**, l’utilisateur peut saisir directement :
+Produire utilement
+        ↓
+Consommer localement
+        ↓
+Stocker l’énergie quand cela a du sens
+        ↓
+Déplacer les usages flexibles
+        ↓
+Limiter la production excédentaire
+        ↓
+Éviter une réinjection sans valeur
 
-- le prix d’achat heures pleines (HP) en €/kWh TVAC ;
-- le prix d’achat heures creuses (HC) en €/kWh TVAC ;
-- le prix fixe de réinjection ;
-- les deux plages horaires HP.
+FoxCat Energy a été pensé en priorité pour les installations où la réinjection peut devenir peu intéressante, nulle ou coûteuse, notamment avec compteur communicant et contrats dynamiques.
 
-FoxCat expose aussi trois capteurs dédiés sur le device **Tarification** : **Prix heures pleines (HP)**, **Prix heures creuses (HC)** et **Prix fixe de réinjection**. Les anciens `number` de réglage restent présents pour compatibilité et sont synchronisés avec la configuration.
+Il peut néanmoins fonctionner dans plusieurs contextes tarifaires.
 
-## Reconfiguration V1.2.0
+Philosophie générale
 
-Le flux **Reconfigurer** a été rendu transactionnel : les modifications restent locales tant que l'utilisateur n'a pas choisi **Enregistrer et quitter**. Le `ConfigEntry` n'est plus rechargé au milieu du flux, ce qui évite le `500 Internal Server Error` observé en V1.1.0.
+FoxCat Energy repose sur quelques principes fondamentaux.
 
-Les options modifiées sont stockées dans `entry.options`; la configuration effective est `entry.data + entry.options`.
+EMS1 reste souverain
 
-## Architecture des modes EMS
+EMS1 représente la couche temps réel.
 
-La V1.2.0 conserve cinq modes :
+Il :
 
-### Économie énergie
+mesure ;
 
-Mode hybride :
+vérifie la validité des données ;
 
-- pilote le boiler ;
-- utilise le surplus solaire utile avant bridage ;
-- permet un stockage opportuniste jusqu'à 65 °C lorsque le boiler est couvert par le solaire ;
-- conserve le confort minimal 45 °C en HC ;
-- interdit l'achat volontaire du boiler en HP ;
-- pilote aussi le PRI sur le surplus résiduel avec la logique zéro injection réseau ;
-- temporise le PRI après une action boiler afin de laisser le réseau se stabiliser.
+applique les sécurités ;
 
-### ECS solaire
+décide ;
 
-La logique métier de la V1.1 est conservée : cycle minimum, failback thermique, HC jour/nuit, HP sans achat volontaire, transition 45 → 65 et boost solaire. Le PRI automatique est libéré à 100 %.
+commande ;
 
-### Zéro injection
+vérifie l’exécution ;
 
-Le PRI est piloté par la **réinjection réseau réelle**. La consommation maison n'est plus une cible de commande et reste seulement un diagnostic.
+corrige si nécessaire.
 
-FoxCat recherche :
+Une décision importante ne doit pas être considérée comme exécutée tant que son effet physique n’a pas été confirmé.
 
-- un zéro total si une marche RRCR de 10 % le permet sans import excessif ;
-- un zéro partiel stable si la granularité de 400 W rend le zéro exact impossible ;
-- une remontée uniquement si elle ne recrée pas une réinjection excessive ;
-- un rollback si une remontée réelle produit trop d'export.
+EMS2 reste prédictif et consultatif
 
-### Prix dynamique
+EMS2 peut exploiter :
 
-Le mode n'est autorisé que si **Régime tarifaire = Dynamique**.
+prévisions solaires ;
 
-Il analyse :
+prix futurs ;
 
-- prix actuel ;
-- prix suivant ;
-- minimum / maximum / moyenne du jour ;
-- prix de réinjection dynamique ;
-- potentiel solaire ;
-- état thermique du boiler.
+historique ;
 
-Priorités : sécurité → machines protégées → prix négatif → solaire utile → arbitrage financier min/max/tendance.
+présence ;
 
-#### Charge réseau lorsque le prix devient négatif
+comportement thermique ;
 
-Nouveau en V1.2.0 : si le prix d'achat dynamique devient **strictement inférieur au seuil configuré** (0 €/kWh par défaut), FoxCat est autorisé à tirer sur le réseau et à charger le boiler jusqu'à la cible de stockage 65 °C, sous réserve des sécurités et priorités machines.
+tendances de consommation.
 
-Entités associées :
+Mais EMS2 ne commande pas directement les équipements.
 
-- **Charge réseau si prix dynamique négatif** : activation / désactivation ;
-- **Seuil charge réseau prix négatif** : 0 €/kWh par défaut ;
-- **Prix dynamique négatif actif** : état diagnostique.
+Il conseille EMS1 sans contourner les règles de sécurité ni les décisions déterministes.
 
-Le solaire reste prioritaire hors ce cas financier explicite. Le PRI tient en parallèle compte de la valeur de réinjection : injection intéressante → libération progressive ; injection défavorable → limitation de l'excédent.
+Les usages utiles passent avant le bridage
 
-### Manuel
+Avant de réduire la puissance photovoltaïque, FoxCat cherche d’abord à utiliser intelligemment l’énergie disponible.
 
-Handover complet :
+Exemples :
 
-- aucune stratégie boiler automatique ;
-- aucun PRI automatique ;
-- aucun planning automatique des prises machines ;
-- l'utilisateur pilote directement le climate boiler et les prises ;
-- un sélecteur **Niveau PRI manuel** permet 0 / 10 / … / 100 % ;
-- la sécurité thermique dure reste active.
+eau chaude sanitaire ;
 
-Lors de l'entrée en Manuel, le PRI est d'abord remis à 100 % comme état sûr, puis l'utilisateur reprend la main.
+lave-linge ;
 
-### Suppression du mode Confort
+sèche-linge ;
 
-Le mode **Confort** disparaît de la liste. Une installation V1.1 enregistrée sur `Confort` est migrée prudemment vers **Manuel** afin de ne lancer aucune stratégie automatique sans choix explicite.
+lave-vaisselle ;
 
-## Régime tarifaire indépendant du mode EMS
+batterie domestique ;
 
-Nouvelle entité : **Régime tarifaire**.
+futures charges pilotables.
 
-Valeurs :
+Le PRI devient la dernière couche d’ajustement lorsque le surplus n’a plus d’usage utile.
 
-- `Compensation`
-- `Bi-horaire HP/HC`
-- `Dynamique`
+Architecture logique
 
-Le mode EMS décrit **comment FoxCat agit** ; le régime tarifaire décrit **comment l'énergie est facturée**.
+CAPTEURS
+   │
+   ▼
+VALIDATION DES DONNÉES
+   │
+   ▼
+CONTEXTE TARIFAIRE
+   │
+   ▼
+MODE EMS
+   │
+   ▼
+ARBITRE ÉNERGÉTIQUE
+   ├── Boiler
+   ├── Machines
+   ├── Batterie
+   ├── Futures charges
+   └── PRI / Onduleur
+   │
+   ▼
+EXÉCUTION
+   │
+   ▼
+ACK COMMANDE
+   │
+   ▼
+ACK PHYSIQUE
+   │
+   ▼
+ACK ÉNERGÉTIQUE
 
-Le mode **Prix dynamique** est bloqué si le régime n'est pas `Dynamique`.
+Modes EMS
 
-## Tarification HP / HC
+Économie énergie
 
-Les deux plages HP sont configurables dans **Reconfigurer → Tarification**. Valeurs AIESH par défaut :
+Le mode Économie énergie devient un mode hybride.
 
-- HP1 : 07:00 → 11:00
-- HP2 : 17:00 → 22:00
-- HC : le reste
+Il ne pilote pas seulement le boiler : il arbitre entre les charges utiles et la production photovoltaïque.
 
-Entités `number` de tarification :
+Principe :
 
-- **Prix achat heures pleines** ;
-- **Prix achat heures creuses** ;
-- **Prix fixe de réinjection**.
+Surplus solaire
+   ↓
+Charge utile disponible ?
+   ├── Oui → utiliser le surplus
+   └── Non → réduire progressivement l’onduleur
 
-Les valeurs de prix sont laissées à 0 par défaut afin de ne pas inventer le contrat du client ; le statut indique **PRIX À CONFIGURER** tant qu'elles ne sont pas renseignées.
+Le boiler conserve les règles thermiques définies par FoxCat :
 
-## Statut prix et coûts
+confort ECS ;
 
-Le device **FoxCat Energy – Tarification** expose notamment :
+stockage solaire opportuniste ;
 
-- régime tarifaire actif ;
-- période HP / HC ;
-- statut du prix (`NÉGATIF`, `TRÈS BAS`, `BAS`, `NORMAL`, `ÉLEVÉ`, `TRÈS ÉLEVÉ`) ;
-- prix d'achat actif ;
-- valeur économique normalisée de la réinjection ;
-- coût instantané du prélèvement en €/h ;
-- valeur instantanée de la réinjection en €/h ;
-- solde financier instantané réseau en €/h.
+limites de température ;
 
-Sous compensation, le modèle est explicitement identifié comme **ESTIMATION_COMPENSATION** : un coût instantané ne remplace pas le décompte annuel de compensation.
+cycles minimums ;
 
-## Contrat énergétique
+respect des plages tarifaires ;
 
-- Production PV : positive en W.
-- Consommation maison : positive en W.
-- Réinjection réseau : positive en W.
-- Prélèvement réseau : positif en W.
-- `balance réseau = réinjection - prélèvement`.
+protections physiques.
 
-Le PRI zéro injection utilise le réseau physique comme arbitre. `sensor.consommation_reelle_maison` reste disponible pour diagnostic mais ne pilote plus directement le niveau RRCR en Zéro injection.
+Le PRI agit en parallèle pour éviter une réinjection inutile.
 
-## PRI SolarEdge RRCR
+ECS solaire
 
-Table L4 L3 L2 L1 :
+Le mode ECS solaire reste volontairement centré sur le stockage thermique.
 
-| Niveau | Code |
-|---:|:---:|
-| 100 % | 0000 |
-| 90 % | 1001 |
-| 80 % | 1000 |
-| 70 % | 0111 |
-| 60 % | 0110 |
-| 50 % | 0101 |
-| 40 % | 0100 |
-| 30 % | 0011 |
-| 20 % | 0010 |
-| 10 % | 0001 |
-| 0 % | 1010 |
+Objectif :
 
-Une décision normale ne change qu'une marche de 10 %, puis attend les ACK RRCR / onduleur / réseau.
+maximiser l’utilisation du solaire dans le boiler ;
 
-## EMS Machines
+garantir le service ECS ;
 
-Chaque machine conserve deux plages ON/OFF configurables. Un cycle déjà commencé n'est jamais interrompu en mode automatique.
+respecter les limites thermiques ;
 
-En **Manuel**, FoxCat ne commande plus les prises : l'utilisateur gère chaque machine directement.
+conserver les règles déjà validées.
 
-## Structure moteur V1.2.0
+Ce mode ne doit pas être transformé silencieusement en stratégie de bridage photovoltaïque.
 
-Les stratégies sont maintenant séparées :
+Zéro injection
 
-```text
-engine/
-├── pri.py
-├── tariff.py
-└── modes/
-    ├── common.py
-    ├── eco.py
-    ├── ecs_solar.py
-    ├── zero_injection.py
-    ├── dynamic.py
-    └── manual.py
-```
+Le mode Zéro injection prend le réseau comme vérité principale.
 
-`engine/strategies.py` reste comme shim de compatibilité vers le nouveau routeur de modes.
+La consommation maison reste une information utile, mais elle ne constitue plus la cible principale du PRI.
 
-## Retour arrière
+La variable prioritaire devient :
 
-Pour revenir immédiatement à l'ancien système :
+Réinjection réseau réelle
 
-1. mettre **Régulation FoxCat active** sur OFF ;
-2. utiliser **Libérer l'onduleur à 100 %** si nécessaire ;
-3. réactiver les anciennes automatisations ou réinstaller la V1.1.0.
+Principe de régulation :
 
-## V1.2.3 — cycles protégés et tarifs HP/HC par entités
+Réinjection trop élevée
+→ descente PRI de 10 %
 
-Un cycle machine protégé ne coupe plus automatiquement le chauffe-eau. FoxCat laisse la machine prioritaire mais autorise le chauffe-eau si le surplus solaire réellement disponible après la machine couvre sa puissance nominale. Si le surplus devient insuffisant, le chauffe-eau est arrêté dans les modes automatiques. Le mode Manuel reste un handover complet, hormis les sécurités thermiques dures.
+Nouvelle mesure réseau
+→ validation / ACK
 
-Dans **Reconfigurer → Tarifs HP/HC**, les prix HP et HC peuvent maintenant venir directement d'entités Home Assistant, comme les prix du contrat dynamique. Les valeurs manuelles restent des valeurs de secours. La même possibilité existe pour le prix fixe de réinjection.
+Réinjection encore présente
+→ nouvelle descente
 
-La prochaine évolution structurelle prévue est un registre d'appareils extensible par capacités : charge ON/OFF, cycle protégé, stockage thermique, batterie à charge variable, mesure de puissance, consigne modulable, SOC, priorité et contraintes horaires. Cette architecture n'est pas activée dans la V1.2.3 : elle fera l'objet d'une version dédiée afin de conserver un arbitre énergétique sûr et testable.
+Prélèvement devenu trop important
+→ remontée possible
+
+Remontée provoquant à nouveau trop de réinjection
+→ rollback
+
+Le système doit accepter qu’un zéro parfait ne soit pas toujours techniquement optimal.
+
+FoxCat peut donc fonctionner en :
+
+zéro injection strict lorsque c’est possible ;
+
+zéro injection partiel / best effort lorsqu’un palier supplémentaire provoquerait trop de prélèvement réseau.
+
+Prix dynamique
+
+Le mode Prix dynamique est le mode financier de FoxCat Energy.
+
+Il doit analyser :
+
+prix actuel ;
+
+prix suivant ;
+
+minimum du jour ;
+
+maximum du jour ;
+
+moyenne ;
+
+tendance ;
+
+prix de réinjection ;
+
+intérêt économique du stockage ;
+
+intérêt économique du bridage.
+
+Priorité générale :
+
+1. Autoconsommer le solaire
+2. Stocker l’énergie utile
+3. Exploiter un prix réseau très bas ou négatif
+4. Comparer la valeur de l’injection
+5. Réduire la production si l’injection n’est pas intéressante
+6. Libérer davantage l’onduleur si l’injection devient économiquement favorable
+
+Prix négatif
+
+Lorsque le prix d’achat devient négatif, FoxCat peut volontairement tirer sur le réseau si cela crée un avantage économique.
+
+Exemple :
+
+Prix réseau négatif
++ capacité thermique disponible
++ sécurités OK
+→ charge du boiler depuis le réseau
+
+À terme, cette logique pourra également s’appliquer à d’autres stockages :
+
+batterie domestique ;
+
+véhicule électrique ;
+
+charge variable ;
+
+autres équipements capables d’absorber temporairement de l’énergie.
+
+Manuel
+
+Le mode Manuel rend réellement la main à l’utilisateur.
+
+Dans ce mode :
+
+pas de stratégie boiler automatique ;
+
+pas de PRI automatique ;
+
+pas de gestion automatique des machines ;
+
+pas d’arbitrage tarifaire actif.
+
+FoxCat continue toutefois :
+
+à mesurer ;
+
+à afficher ;
+
+à journaliser ;
+
+à conserver les sécurités critiques.
+
+Les protections thermiques ou matérielles ne doivent jamais disparaître simplement parce que le mode Manuel est sélectionné.
+
+Régimes tarifaires
+
+Le mode EMS et le régime tarifaire sont deux notions distinctes.
+
+FoxCat Energy prévoit trois grandes familles.
+
+Compensation
+
+Mode destiné aux installations encore soumises à un mécanisme de compensation.
+
+Les coûts journaliers doivent être considérés comme indicatifs car une compensation annuelle ne peut pas être représentée correctement par un simple coût instantané.
+
+HP / HC
+
+Le régime bi-horaire utilise :
+
+prix heures pleines ;
+
+prix heures creuses ;
+
+plages horaires configurables ;
+
+prix fixe éventuel de réinjection.
+
+Les horaires ne doivent pas être codés définitivement dans le moteur afin de permettre l’utilisation de FoxCat chez plusieurs gestionnaires de réseau.
+
+Évolution prévue
+
+À terme, l’utilisateur pourra choisir entre :
+
+saisie manuelle du prix HP ;
+
+saisie manuelle du prix HC ;
+
+entité Home Assistant donnant le prix HP ;
+
+entité Home Assistant donnant le prix HC.
+
+Le fonctionnement deviendra donc similaire à la configuration du tarif dynamique.
+
+Dynamique
+
+Le régime dynamique repose sur les entités de prix fournies par le contrat ou l’intégration tarifaire utilisée.
+
+FoxCat exploite notamment :
+
+prix d’achat courant ;
+
+prix suivant ;
+
+minimum ;
+
+maximum ;
+
+moyenne ;
+
+prix ou valeur de réinjection.
+
+Gestion des cycles protégés
+
+Une machine dont le cycle est protégé ne doit jamais être interrompue par FoxCat.
+
+Exemples :
+
+lave-linge ;
+
+sèche-linge ;
+
+lave-vaisselle.
+
+Correction de stratégie prévue
+
+La présence d’un cycle protégé ne doit pas interdire automatiquement le fonctionnement du boiler.
+
+La bonne logique est :
+
+Machine protégée en fonctionnement
+        ↓
+Mesurer le surplus restant
+        ↓
+Surplus suffisant pour alimenter le boiler ?
+        ├── Oui → boiler autorisé
+        └── Non → boiler différé ou arrêté selon la stratégie active
+
+La machine reste prioritaire parce que son cycle ne peut pas être interrompu, mais le boiler peut fonctionner simultanément lorsque la puissance disponible le permet.
+
+Cette évolution remplace la logique trop restrictive :
+
+Machine active → Boiler interdit
+
+par :
+
+Machine active → Boiler possible si énergie réellement disponible
+
+Statut : évolution fonctionnelle à intégrer / À TESTER.
+
+PRI SolarEdge
+
+FoxCat Energy utilise le PRI comme actionneur de limitation de puissance photovoltaïque.
+
+Pour l’installation de référence :
+
+onduleur nominal : 4 000 W ;
+
+11 niveaux ;
+
+de 0 à 100 % ;
+
+pas de 10 % ;
+
+environ 400 W par palier.
+
+La logique recherchée n’est pas de calculer une puissance idéale théorique puis de l’imposer aveuglément.
+
+Le réseau sert de retour réel :
+
+Décision
+→ commande RRCR
+→ ACK RRCR
+→ mesure réseau
+→ correction
+
+La stabilité est prioritaire sur la recherche obsessionnelle de 0 W exact.
+
+Vers un EMS extensible
+
+FoxCat Energy doit évoluer vers une architecture où les équipements ne sont plus codés en dur.
+
+L’utilisateur pourra progressivement ajouter ses propres appareils.
+
+Exemples :
+
+boiler ;
+
+lave-linge ;
+
+sèche-linge ;
+
+lave-vaisselle ;
+
+batterie domestique ;
+
+charge variable ;
+
+autres charges flexibles.
+
+Chaque appareil pourra être décrit par ses capacités.
+
+Exemple conceptuel :
+
+Nom : Batterie maison
+Type : Stockage électrique
+Puissance max : 5 000 W
+Puissance variable : Oui
+Interruption autorisée : Oui
+Énergie minimale à conserver : 20 %
+Priorité EMS : 2
+Compatible prix négatif : Oui
+Compatible surplus solaire : Oui
+
+Autre exemple :
+
+Nom : Lave-linge
+Type : Cycle protégé
+Puissance : 2 500 W
+Puissance variable : Non
+Interruption autorisée : Non
+Démarrage flexible : Oui
+Priorité EMS : 1
+
+Le moteur ne devra donc plus raisonner uniquement en fonction de noms d’appareils, mais en fonction de capacités énergétiques.
+
+Modèle futur des appareils
+
+Une architecture générique pourra décrire chaque équipement avec des propriétés telles que :
+
+type d’appareil ;
+
+puissance nominale ;
+
+puissance minimale ;
+
+puissance maximale ;
+
+charge variable ou tout-ou-rien ;
+
+cycle interruptible ou protégé ;
+
+priorité ;
+
+plage de fonctionnement ;
+
+autorisation réseau ;
+
+autorisation solaire ;
+
+compatibilité prix négatif ;
+
+capacité de stockage ;
+
+niveau minimal ;
+
+niveau maximal ;
+
+entité de puissance ;
+
+entité de commande ;
+
+entité d’état.
+
+Le moteur EMS pourra ensuite construire sa stratégie à partir de ces propriétés.
+
+APPAREILS CONFIGURÉS
+        ↓
+CAPACITÉS
+        ↓
+PRIORITÉS
+        ↓
+CONTRAINTES
+        ↓
+MODE EMS
+        ↓
+ARBITRAGE
+
+C’est cette évolution qui permettra à FoxCat Energy de devenir un produit adaptable à plusieurs maisons sans réécrire les stratégies pour chaque installation.
+
+Évolution du projet
+
+V1.0
+
+Première encapsulation du moteur FoxCat dans un custom component Home Assistant.
+
+Objectifs :
+
+sortir progressivement des automatisations YAML ;
+
+centraliser la logique ;
+
+séparer décision et exécution ;
+
+conserver EMS1 souverain.
+
+V1.1
+
+Évolutions principales :
+
+amélioration du PRI ;
+
+gestion machines ;
+
+renommage et harmonisation des entités en français ;
+
+préparation du dépôt HACS.
+
+V1.2
+
+Restructuration générale :
+
+clarification des modes EMS ;
+
+ECO hybride ;
+
+Zéro injection centré sur le réseau ;
+
+mode Prix dynamique renforcé ;
+
+suppression du mode Confort ;
+
+distinction entre stratégie EMS et régime tarifaire ;
+
+ajout de la tarification HP/HC ;
+
+possibilité de tirer sur le réseau lorsque le prix devient négatif.
+
+V1.2.1
+
+Correctif structurel du flux de configuration Home Assistant.
+
+Objectif :
+
+rendre le config_flow et la reconfiguration fiables ;
+
+réduire les dépendances chargées trop tôt ;
+
+préserver les stratégies énergétiques existantes.
+
+V1.2.2
+
+Ajout d’une configuration dédiée aux tarifs HP/HC.
+
+Objectifs :
+
+prix HP ;
+
+prix HC ;
+
+prix fixe de réinjection ;
+
+plages HP configurables ;
+
+capteurs tarifaires dédiés.
+
+Prochaines évolutions
+
+Priorité 1 — Arbitrage machine / boiler
+
+Corriger la règle actuelle afin qu’une machine protégée ne bloque plus systématiquement le boiler.
+
+Le boiler sera autorisé si le surplus réellement disponible couvre son fonctionnement sans perturber le cycle protégé.
+
+Priorité 2 — Prix HP/HC par entités
+
+Permettre de sélectionner des entités Home Assistant pour les prix HP et HC, comme c’est déjà le cas pour les prix dynamiques.
+
+Priorité 3 — Gestionnaire générique d’appareils
+
+Créer une page permettant d’ajouter, modifier et supprimer des appareils pilotables.
+
+Le moteur devra pouvoir intégrer automatiquement leurs capacités dans l’arbitrage EMS.
+
+Priorité 4 — Stockages variables
+
+Ajouter nativement la gestion :
+
+batteries domestiques ;
+
+charges variables ;
+
+futurs véhicules électriques ;
+
+autres stockages configurables.
+
+Priorité 5 — Moteur économique
+
+Comparer en temps réel :
+
+coût d’achat ;
+
+valeur d’autoconsommation ;
+
+valeur d’injection ;
+
+intérêt du stockage ;
+
+coût du bridage ;
+
+bénéfice d’un prix négatif.
+
+L’objectif n’est plus seulement de gérer des watts, mais de maximiser la valeur économique de chaque kWh.
+
+Statuts de développement
+
+FoxCat Energy distingue volontairement plusieurs niveaux de maturité.
+
+Statut
+
+Signification
+
+IDÉE
+
+Principe envisagé
+
+À TESTER
+
+Implémenté ou défini mais non validé sur le terrain
+
+TEST
+
+En cours d’essai
+
+VALIDÉ
+
+Comportement confirmé
+
+UPGRADE
+
+Amélioration d’un comportement validé
+
+DOWNGRADE
+
+Régression ou retour vers une version plus simple
+
+ROLLBACK
+
+Retour volontaire à une version antérieure
+
+ABANDONNÉ
+
+Piste volontairement écartée
+
+Aucune fonction ne doit être considérée comme validée uniquement parce qu’elle compile ou fonctionne en simulation.
+
+Principe de compatibilité
+
+Lors d’une évolution de FoxCat Energy :
+
+les fonctions validées doivent être conservées ;
+
+aucune sécurité ne doit être supprimée silencieusement ;
+
+aucune logique de priorité ne doit disparaître sans décision explicite ;
+
+les migrations doivent être documentées ;
+
+un rollback doit rester possible.
+
+Le développement suit donc le principe :
+
+Une nouvelle version est une extension contrôlée de la baseline précédente, pas une réécriture simplifiée.
+
+Vision
+
+FoxCat Energy doit devenir un EMS résidentiel capable de s’adapter à la maison dans laquelle il est installé.
+
+Il ne doit pas uniquement connaître un boiler ou trois machines spécifiques.
+
+Il doit comprendre :
+
+quelles charges sont disponibles ;
+
+lesquelles peuvent être interrompues ;
+
+lesquelles doivent terminer leur cycle ;
+
+lesquelles peuvent moduler leur puissance ;
+
+lesquelles peuvent stocker de l’énergie ;
+
+quel est le coût de l’électricité ;
+
+quelle est la valeur de l’injection ;
+
+quelle quantité de solaire est disponible ;
+
+quel usage apporte le plus de valeur à l’instant présent.
+
+L’objectif final est simple :
+
+Utiliser chaque kWh là où il apporte le plus de valeur, tout en conservant le confort, les sécurités et la souveraineté locale de l’installation.
+
+État du projet
+
+FoxCat Energy est actuellement un projet en développement actif.
+
+Les fonctions énergétiques doivent être validées sur installation réelle avant d’être considérées comme stables pour une diffusion large.
+
+Projet : FoxCat Energy / FoxCat Energy Box
+Plateforme : Home Assistant
+Architecture : EMS1 souverain + EMS2 prédictif
+Orientation : autoconsommation, zéro injection, tarification dynamique et gestion intelligente des charges
