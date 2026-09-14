@@ -2,7 +2,8 @@
   "title": "FoxCat Energy",
   "config": {
     "abort": {
-      "single_instance_allowed": "Une seule installation FoxCat Energy est autorisée."
+      "single_instance_allowed": "Une seule installation FoxCat Energy est autorisée.",
+      "no_machines_configured": "Aucune machine n’est configurée."
     },
     "step": {
       "user": {
@@ -139,7 +140,14 @@
         "title": "PRI SolarEdge"
       },
       "machines": {
-        "title": "EMS Machines – prises et horaires"
+        "title": "EMS Machines – appareils extensibles",
+        "description": "Ajoute, modifie ou supprime les machines ON/OFF gérées par FoxCat.",
+        "menu_options": {
+          "machine_add": "Ajouter une machine",
+          "machine_edit": "Modifier une machine",
+          "machine_remove": "Supprimer une machine",
+          "init": "Retour"
+        }
       },
       "pricing": {
         "title": "Tarification dynamique"
@@ -153,6 +161,51 @@
       "hphc": {
         "title": "Tarifs HP/HC",
         "description": "Entités de prix HP/HC prioritaires, valeurs manuelles de secours, prix de réinjection et plages horaires."
+      },
+      "machine_add": {
+        "title": "Ajouter une machine",
+        "description": "Déclare une machine ON/OFF. Un cycle protégé est optionnel et ne bloque le chauffe-eau que si le surplus solaire est insuffisant.",
+        "data": {
+          "name": "Nom de la machine",
+          "switch": "Prise / relais de commande",
+          "cycle": "Cycle protégé (optionnel)",
+          "power_sensor": "Capteur de puissance (optionnel)",
+          "automatic": "Gestion automatique",
+          "sheddable": "Charge délestable en haute consommation",
+          "on_1": "Allumer plage 1",
+          "off_1": "Éteindre plage 1",
+          "on_2": "Allumer plage 2",
+          "off_2": "Éteindre plage 2"
+        }
+      },
+      "machine_edit": {
+        "title": "Modifier une machine",
+        "data": {
+          "machine_id": "Machine"
+        }
+      },
+      "machine_edit_form": {
+        "title": "Modifier la machine",
+        "description": "Déclare une machine ON/OFF. Un cycle protégé est optionnel et ne bloque le chauffe-eau que si le surplus solaire est insuffisant.",
+        "data": {
+          "name": "Nom de la machine",
+          "switch": "Prise / relais de commande",
+          "cycle": "Cycle protégé (optionnel)",
+          "power_sensor": "Capteur de puissance (optionnel)",
+          "automatic": "Gestion automatique",
+          "sheddable": "Charge délestable en haute consommation",
+          "on_1": "Allumer plage 1",
+          "off_1": "Éteindre plage 1",
+          "on_2": "Allumer plage 2",
+          "off_2": "Éteindre plage 2"
+        }
+      },
+      "machine_remove": {
+        "title": "Supprimer une machine",
+        "description": "La machine sera retirée de FoxCat sans supprimer aucune entité Home Assistant.",
+        "data": {
+          "machine_id": "Machine"
+        }
       }
     }
   }

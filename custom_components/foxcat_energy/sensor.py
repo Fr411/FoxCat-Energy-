@@ -33,6 +33,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         FoxCatNumericSensor(c, "variation_attendue", "Variation attendue", "mdi:swap-vertical", "ems", lambda d: d["core"]["pending_delta"], UnitOfPower.WATT, SensorDeviceClass.POWER),
         FoxCatNumericSensor(c, "production_pv", "Puissance de production photovoltaïque", "mdi:solar-power", "ems", lambda d: d["snapshot"].pv_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
         FoxCatNumericSensor(c, "consommation_maison", "Puissance de consommation maison", "mdi:home-lightning-bolt", "ems", lambda d: d["snapshot"].house_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
+        FoxCatValueSensor(c, "statut_delestage", "Statut délestage haute consommation", "mdi:home-lightning-bolt-outline", "ems", lambda d: d["load_shed"].get("reason")),
         FoxCatNumericSensor(c, "reinjection_reseau", "Puissance réinjectée au réseau", "mdi:transmission-tower-export", "ems", lambda d: d["snapshot"].export_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
         FoxCatNumericSensor(c, "prelevement_reseau", "Puissance prélevée au réseau", "mdi:transmission-tower-import", "ems", lambda d: d["snapshot"].import_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
         FoxCatNumericSensor(c, "balance_reseau", "Puissance nette réseau", "mdi:transmission-tower", "ems", lambda d: d["snapshot"].grid_net_w, UnitOfPower.WATT, SensorDeviceClass.POWER),

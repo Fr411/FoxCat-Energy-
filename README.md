@@ -594,53 +594,29 @@ plages HP configurables ;
 
 capteurs tarifaires dédiés.
 
-Prochaines évolutions
+## Prochaines évolutions
 
-Priorité 1 — Arbitrage machine / boiler
+### Réalisé en V1.3.0 — Arbitrage machine / boiler
 
-Corriger la règle actuelle afin qu’une machine protégée ne bloque plus systématiquement le boiler.
+Une machine protégée ne bloque plus systématiquement le boiler. Le boiler est autorisé lorsque le surplus réellement disponible couvre sa puissance, avec validation stable sur deux trames avant démarrage.
 
-Le boiler sera autorisé si le surplus réellement disponible couvre son fonctionnement sans perturber le cycle protégé.
+### Réalisé en V1.3.0 — Gestionnaire de machines ON/OFF extensibles
 
-Priorité 2 — Prix HP/HC par entités
+FoxCat permet désormais d’ajouter, modifier et supprimer des machines ON/OFF, chacune avec identifiant stable, nom, prise, cycle protégé optionnel, capteur de puissance optionnel, gestion automatique et deux plages horaires.
 
-Permettre de sélectionner des entités Home Assistant pour les prix HP et HC, comme c’est déjà le cas pour les prix dynamiques.
+### Priorité suivante — Charges flexibles ON/OFF génériques
 
-Priorité 3 — Gestionnaire générique d’appareils
+Étendre l’arbitrage à des charges comme second boiler, résistance d’appoint, pompe ou chauffage de stockage, avec puissance nominale, priorité, autorisation réseau, durée minimale et stratégie par mode.
 
-Créer une page permettant d’ajouter, modifier et supprimer des appareils pilotables.
+### Étape future — Charges variables et stockage
 
-Le moteur devra pouvoir intégrer automatiquement leurs capacités dans l’arbitrage EMS.
+Ajouter batteries domestiques, bornes VE, charges modulables et stockage avec un arbitre énergétique multi-appareils.
 
-Priorité 4 — Stockages variables
+### Étape future — Moteur économique
 
-Ajouter nativement la gestion :
+Comparer coût d’achat, valeur d’autoconsommation, valeur d’injection, intérêt du stockage, coût du bridage et bénéfice d’un prix négatif.
 
-batteries domestiques ;
-
-charges variables ;
-
-futurs véhicules électriques ;
-
-autres stockages configurables.
-
-Priorité 5 — Moteur économique
-
-Comparer en temps réel :
-
-coût d’achat ;
-
-valeur d’autoconsommation ;
-
-valeur d’injection ;
-
-intérêt du stockage ;
-
-coût du bridage ;
-
-bénéfice d’un prix négatif.
-
-L’objectif n’est plus seulement de gérer des watts, mais de maximiser la valeur économique de chaque kWh.
+---
 
 Statuts de développement
 
@@ -742,3 +718,8 @@ Projet : FoxCat Energy / FoxCat Energy Box
 Plateforme : Home Assistant
 Architecture : EMS1 souverain + EMS2 prédictif
 Orientation : autoconsommation, zéro injection, tarification dynamique et gestion intelligente des charges
+
+
+## Délestage haute consommation (1.3.1)
+
+FoxCat peut détecter une puissance maison durablement élevée et suspendre temporairement les charges variables afin de limiter les pointes, par exemple pendant la préparation des repas. La fonction est désactivée par défaut. Les seuils et temporisations sont réglables via les entités `number`. Un cycle machine protégé déjà actif n’est jamais interrompu. Le boiler est arrêté pendant le délestage, les machines marquées délestables sont coupées hors cycle, et le PRI est libéré à 100 % afin de maximiser la production photovoltaïque disponible. Le retour est temporisé et utilise un seuil inférieur au seuil de déclenchement. Le mode Manuel n’applique pas ce délestage automatique.

@@ -54,6 +54,7 @@ from .const import (
     CONF_GRID_IMPORT_SENSOR,
     CONF_HOUSE_SENSOR,
     CONF_INSTALLATION_NAME,
+    CONF_MACHINES_V13,
     CONF_PRICE_AVG_TODAY,
     CONF_PRICE_AVG_TOMORROW,
     CONF_PRICE_CURRENT,
@@ -112,6 +113,7 @@ from .engine.load_guard import (
     protected_cycle_boiler_allowed_stable,
 )
 from .engine.tariff import price_status, tariff_boundaries, tariff_period
+from .machines import MachineDefinition, machine_allowed, machine_definitions, schedule_boundaries
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -124,6 +126,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.config = dict(entry.data)
         self.config.update(entry.options)
         self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
+        self.machines: list[MachineDefinition] = machine_definitions(self.config)
         self.settings: dict[str, Any] = dict(DEFAULT_SETTINGS)
         self.core_state: dict[str, Any] = {
             "phase": PHASE_ACQUISITION,
@@ -165,6 +168,14 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._execution_task: asyncio.Task | None = None
         self._pv_below_since: datetime | None = None
         self._last_boiler_command_at: datetime | None = None
+        self._high_load_since: datetime | None = None
+        self._high_load_below_since: datetime | None = None
+        self.load_shed_state: dict[str, Any] = {
+            "active": False,
+            "reason": "Inactif",
+            "triggered_at": None,
+            "house_w": 0.0,
+        }
         self._loaded_existing_state = False
 
         super().__init__(
@@ -202,6 +213,11 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.settings[key] = float(self.config[key])
                 except (TypeError, ValueError):
                     pass
+
+        # V1.3 : chaque machine extensible possède son propre interrupteur de gestion.
+        # Les trois clés historiques restent utilisées pour les appareils migrés.
+        for machine in self.machines:
+            self.settings.setdefault(machine.setting_key, machine.automatic_default)
 
         self.settings["mode"] = MODE_ALIASES.get(str(self.settings.get("mode")), str(self.settings.get("mode")))
         self._register_listeners()
@@ -270,7 +286,8 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if grid_entities:
             self._unsubs.append(async_track_state_change_event(self.hass, grid_entities, self._on_grid_event))
 
-        safety_entities = [x for x in [self.config.get(CONF_BOILER_TEMP_SENSOR), self.config.get(CONF_BOILER_BINARY), self.config.get(CONF_BOILER_POWER_SENSOR), self.config.get(CONF_WASHER_CYCLE), self.config.get(CONF_DRYER_CYCLE), self.config.get(CONF_DISHWASHER_CYCLE)] if x]
+        machine_cycle_entities = [m.cycle_entity for m in self.machines if m.cycle_entity]
+        safety_entities = [x for x in [self.config.get(CONF_BOILER_TEMP_SENSOR), self.config.get(CONF_BOILER_BINARY), self.config.get(CONF_BOILER_POWER_SENSOR), *machine_cycle_entities] if x]
         if safety_entities:
             self._unsubs.append(async_track_state_change_event(self.hass, safety_entities, self._on_safety_event))
 
@@ -349,6 +366,8 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         await self._watchdog()
         await self._check_end_solar()
+        if bool(self.settings.get("regulation_active")):
+            await self._evaluate_high_load(self.snapshot())
         return self._build_data()
 
     def _float_state(self, entity_id: str | None, default: float = 0.0) -> float:
@@ -399,8 +418,9 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (TypeError, ValueError):
             setpoint = float(self.settings["boiler_temp_normal_c"])
         machine_active = any(
-            self._is_on(eid)
-            for eid in [self.config.get(CONF_WASHER_CYCLE), self.config.get(CONF_DRYER_CYCLE), self.config.get(CONF_DISHWASHER_CYCLE)]
+            self._is_on(machine.cycle_entity)
+            for machine in self.machines
+            if machine.cycle_entity
         )
         valid = all(self._numeric_valid(eid) for eid in [pv_id, house_id, export_id, import_id])
         return EnergySnapshot(
@@ -555,6 +575,14 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._pri_task.cancel()
                 await self.async_release_pri_100("Régulation désactivée : onduleur libéré à 100 %.")
 
+        if key == "high_load_shed_enabled" and not value:
+            self._high_load_since = None
+            self._high_load_below_since = None
+            if self.load_shed_state.get("active"):
+                self.load_shed_state.update({"active": False, "reason": "Délestage désactivé", "triggered_at": None})
+                if str(self.settings.get("mode")) != MODE_MANUAL:
+                    await self.async_reconcile_machines()
+
         if key == "pri_enabled" and not value:
             if self._pri_task and not self._pri_task.done():
                 self._pri_task.cancel()
@@ -674,8 +702,10 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.core_state["last_frame"] = snapshot.timestamp
 
             if bool(self.settings.get("regulation_active")):
+                await self._evaluate_high_load(snapshot)
                 await self._core_process_frame(snapshot)
-                self._maybe_start_pri(snapshot)
+                if not self.load_shed_state["active"]:
+                    self._maybe_start_pri(snapshot)
             else:
                 self.core_state["last_reason"] = "Régulation inactive : télémétrie seulement."
 
@@ -691,6 +721,19 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _core_process_frame(self, snapshot: EnergySnapshot) -> None:
         if not snapshot.valid:
             self.reset_core("Mesures énergétiques invalides : aucune décision autorisée.")
+            return
+
+        # Le délestage haute consommation est prioritaire sur les stratégies
+        # énergétiques normales, mais reste inactif en mode Manuel.
+        if self.load_shed_state.get("active") and str(self.settings.get("mode")) != MODE_MANUAL:
+            if snapshot.boiler_on:
+                await self.async_command_boiler(
+                    BOILER_STOP,
+                    "Délestage haute consommation : arrêt temporaire du chauffe-eau.",
+                    "DELESTAGE",
+                )
+            else:
+                self.reset_core("Délestage haute consommation actif : charges variables suspendues.")
             return
 
         # Immediate thermal safety remains active in every mode.
@@ -992,28 +1035,39 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return start_minute <= now_minute < stop_minute
         return now_minute >= start_minute or now_minute < stop_minute
 
-    def _machine_allowed(self, prefix: str, now: datetime) -> bool:
-        defaults = ("21:30:00", "07:00:00", "10:30:00", "17:00:00")
-        keys = {
-            "washer": (CONF_WASHER_ON_1, CONF_WASHER_OFF_1, CONF_WASHER_ON_2, CONF_WASHER_OFF_2),
-            "dryer": (CONF_DRYER_ON_1, CONF_DRYER_OFF_1, CONF_DRYER_ON_2, CONF_DRYER_OFF_2),
-            "dishwasher": (CONF_DISHWASHER_ON_1, CONF_DISHWASHER_OFF_1, CONF_DISHWASHER_ON_2, CONF_DISHWASHER_OFF_2),
-        }[prefix]
-        vals = [self._time_minutes(self.config.get(key), default) for key, default in zip(keys, defaults, strict=True)]
-        minute = now.hour * 60 + now.minute
-        return self._within_time_window(minute, vals[0], vals[1]) or self._within_time_window(minute, vals[2], vals[3])
+    def _machine_allowed(self, machine_id: str, now: datetime) -> bool:
+        machine = next((item for item in self.machines if item.machine_id == machine_id), None)
+        return machine_allowed(machine, now) if machine else False
 
     def _machine_schedule_boundaries(self) -> set[tuple[int, int]]:
-        defaults = {
-            CONF_WASHER_ON_1: "21:30:00", CONF_WASHER_OFF_1: "07:00:00", CONF_WASHER_ON_2: "10:30:00", CONF_WASHER_OFF_2: "17:00:00",
-            CONF_DRYER_ON_1: "21:30:00", CONF_DRYER_OFF_1: "07:00:00", CONF_DRYER_ON_2: "10:30:00", CONF_DRYER_OFF_2: "17:00:00",
-            CONF_DISHWASHER_ON_1: "21:30:00", CONF_DISHWASHER_OFF_1: "07:00:00", CONF_DISHWASHER_ON_2: "10:30:00", CONF_DISHWASHER_OFF_2: "17:00:00",
-        }
-        result: set[tuple[int, int]] = set()
-        for key, default in defaults.items():
-            minute = self._time_minutes(self.config.get(key), default)
-            result.add((minute // 60, minute % 60))
+        return schedule_boundaries(self.machines)
+
+    def machine_states(self) -> list[dict[str, Any]]:
+        now = dt_util.now()
+        result: list[dict[str, Any]] = []
+        for machine in self.machines:
+            result.append({
+                "id": machine.machine_id,
+                "name": machine.name,
+                "switch": machine.switch_entity,
+                "cycle_entity": machine.cycle_entity,
+                "power_sensor": machine.power_sensor,
+                "power_w": self._optional_float_state(machine.power_sensor),
+                "cycle_active": self._is_on(machine.cycle_entity),
+                "automatic": bool(self.settings.get(machine.setting_key, machine.automatic_default)),
+                "sheddable": machine.sheddable,
+                "window_open": machine_allowed(machine, now),
+            })
         return result
+
+    async def async_set_machine_enabled(self, machine_id: str, enabled: bool) -> None:
+        machine = next((item for item in self.machines if item.machine_id == machine_id), None)
+        if machine is None:
+            return
+        self.settings[machine.setting_key] = bool(enabled)
+        await self._async_save()
+        await self.async_reconcile_machines()
+        self.async_set_updated_data(self._build_data())
 
     async def async_reconcile_machines(self) -> None:
         if not bool(self.settings.get("regulation_active")):
@@ -1022,24 +1076,100 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Manuel = handover complet. FoxCat ne change aucune prise machine.
             return
         now = dt_util.now()
-        machines = [
-            ("washer_enabled", self.config.get(CONF_WASHER_SOCKET), self.config.get(CONF_WASHER_CYCLE), "lave-linge", "washer"),
-            ("dryer_enabled", self.config.get(CONF_DRYER_SOCKET), self.config.get(CONF_DRYER_CYCLE), "sèche-linge", "dryer"),
-            ("dishwasher_enabled", self.config.get(CONF_DISHWASHER_SOCKET), self.config.get(CONF_DISHWASHER_CYCLE), "lave-vaisselle", "dishwasher"),
-        ]
-        for setting, socket, cycle, _name, prefix in machines:
+        for machine in self.machines:
+            socket = machine.switch_entity
             if not socket:
                 continue
-            cycle_active = self._is_on(cycle)
-            management = bool(self.settings.get(setting))
-            allowed = self._machine_allowed(prefix, now)
-            # Règle souveraine conservée : un cycle déjà commencé n'est jamais interrompu.
-            should_on = cycle_active or (management and allowed)
+            cycle_active = self._is_on(machine.cycle_entity)
+            management = bool(self.settings.get(machine.setting_key, machine.automatic_default))
+            allowed = machine_allowed(machine, now)
+            # Règle souveraine : un cycle déjà commencé n'est jamais interrompu.
+            # Pendant un délestage, seules les machines explicitement délestables
+            # et sans cycle protégé actif sont coupées.
+            high_load_block = bool(self.load_shed_state.get("active")) and machine.sheddable and not cycle_active
+            should_on = cycle_active or (management and allowed and not high_load_block)
             service = "turn_on" if should_on else "turn_off"
             try:
                 await self.hass.services.async_call("switch", service, {"entity_id": socket}, blocking=False)
             except Exception as err:  # pragma: no cover
-                _LOGGER.warning("FoxCat machine socket command failed for %s: %s", socket, err)
+                _LOGGER.warning("FoxCat machine socket command failed for %s (%s): %s", machine.name, socket, err)
+
+    async def _evaluate_high_load(self, snapshot: EnergySnapshot) -> None:
+        """Détecte une forte consommation et déleste les charges variables.
+
+        La mesure de référence est la puissance maison réelle. Le déclenchement
+        et le réarmement sont temporisés et utilisent deux seuils différents
+        afin d'éviter les oscillations. Un cycle machine protégé déjà actif
+        n'est jamais interrompu.
+        """
+        self.load_shed_state["house_w"] = snapshot.house_w
+        enabled = bool(self.settings.get("high_load_shed_enabled"))
+        automatic = str(self.settings.get("mode")) != MODE_MANUAL
+        if not enabled or not automatic:
+            self._high_load_since = None
+            self._high_load_below_since = None
+            if self.load_shed_state.get("active"):
+                self.load_shed_state.update({"active": False, "reason": "Délestage indisponible ou mode Manuel", "triggered_at": None})
+                await self.async_reconcile_machines()
+            return
+
+        now = dt_util.now()
+        trigger_w = float(self.settings.get("high_load_trigger_w", 5000.0))
+        release_w = min(float(self.settings.get("high_load_release_w", 3500.0)), trigger_w)
+        confirm_s = max(float(self.settings.get("high_load_confirm_s", 30.0)), 0.0)
+        restore_s = max(float(self.settings.get("high_load_restore_s", 120.0)), 0.0)
+
+        if not self.load_shed_state.get("active"):
+            self._high_load_below_since = None
+            if snapshot.house_w >= trigger_w:
+                if self._high_load_since is None:
+                    self._high_load_since = now
+                if (now - self._high_load_since).total_seconds() >= confirm_s:
+                    await self._activate_high_load_shed(snapshot, trigger_w)
+            else:
+                self._high_load_since = None
+            return
+
+        # Délestage déjà actif : attendre un retour durable sous le seuil bas.
+        self._high_load_since = None
+        if snapshot.house_w <= release_w:
+            if self._high_load_below_since is None:
+                self._high_load_below_since = now
+            if (now - self._high_load_below_since).total_seconds() >= restore_s:
+                self.load_shed_state.update({
+                    "active": False,
+                    "reason": f"Consommation stabilisée sous {release_w:.0f} W",
+                    "triggered_at": None,
+                })
+                self._high_load_below_since = None
+                self.reset_core("Fin délestage haute consommation : nouvelle acquisition requise.")
+                await self.async_reconcile_machines()
+        else:
+            self._high_load_below_since = None
+
+    async def _activate_high_load_shed(self, snapshot: EnergySnapshot, trigger_w: float) -> None:
+        self.load_shed_state.update({
+            "active": True,
+            "reason": f"Puissance maison {snapshot.house_w:.0f} W >= {trigger_w:.0f} W",
+            "triggered_at": dt_util.now(),
+            "house_w": snapshot.house_w,
+        })
+        self._high_load_since = None
+        self._high_load_below_since = None
+        self.reset_core("Délestage haute consommation déclenché.")
+
+        if self._pri_task and not self._pri_task.done():
+            self._pri_task.cancel()
+        # En forte demande, aucune raison de brider le photovoltaïque.
+        await self.async_release_pri_100("Délestage haute consommation : onduleur libéré à 100 %.")
+
+        if snapshot.boiler_on:
+            await self.async_command_boiler(
+                BOILER_STOP,
+                "Délestage haute consommation : arrêt temporaire du chauffe-eau.",
+                "DELESTAGE",
+            )
+        await self.async_reconcile_machines()
 
     async def async_handle_price_change(self) -> None:
         snap = self.snapshot()
@@ -1460,14 +1590,12 @@ Cherche une fenêtre solaire exploitable avant la prochaine échéance énergét
             "solar": self.solar_forecast,
             "prices": self.prices(),
             "legacy_conflict": self._legacy_conflict(),
+            "load_shed": dict(self.load_shed_state),
             "machine_guard": {
                 "active": snap.machine_active,
                 "boiler_surplus_available_w": boiler_surplus_before_load_w(snap),
                 "boiler_allowed": protected_cycle_boiler_allowed(snap, self.settings),
             },
-            "machine_window": {
-                "lave_linge": self._machine_allowed("washer", dt_util.now()),
-                "seche_linge": self._machine_allowed("dryer", dt_util.now()),
-                "lave_vaisselle": self._machine_allowed("dishwasher", dt_util.now()),
-            },
+            "machines": self.machine_states(),
+            "machine_window": {machine.machine_id: machine_allowed(machine, dt_util.now()) for machine in self.machines},
         }

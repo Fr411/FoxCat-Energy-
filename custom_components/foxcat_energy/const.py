@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 DOMAIN = "foxcat_energy"
-VERSION = "1.2.3"
+VERSION = "1.3.1"
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
 
 # Configuration keys
@@ -25,6 +25,9 @@ CONF_DISHWASHER_SOCKET = "dishwasher_socket"
 CONF_WASHER_CYCLE = "washer_cycle"
 CONF_DRYER_CYCLE = "dryer_cycle"
 CONF_DISHWASHER_CYCLE = "dishwasher_cycle"
+
+# V1.3: liste extensible des machines ON/OFF.
+CONF_MACHINES_V13 = "machines_v13"
 
 # Plages horaires configurables des prises machines. Deux fenêtres par machine
 # permettent de conserver le comportement historique 21:30-07:00 et 10:30-17:00.
@@ -147,6 +150,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "dishwasher_enabled": True,
     "solar_advisor_enabled": True,
     "dynamic_negative_price_charge_enabled": True,
+    "high_load_shed_enabled": False,
     "tariff_regime": TARIFF_COMPENSATION,
     "tariff_hp_price_eur_kwh": 0.0,
     "tariff_hc_price_eur_kwh": 0.0,
@@ -197,6 +201,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "dynamic_injection_lucrative_threshold": -0.0001,
     "dynamic_grid_charge_threshold_eur_kwh": 0.0,
     "pri_boiler_settle_s": 30.0,
+    "high_load_trigger_w": 5000.0,
+    "high_load_release_w": 3500.0,
+    "high_load_confirm_s": 30.0,
+    "high_load_restore_s": 120.0,
 }
 
 NUMBER_DEFINITIONS = {
@@ -244,6 +252,10 @@ NUMBER_DEFINITIONS = {
     "tariff_hc_price_eur_kwh": ("Prix achat heures creuses", 0, 2, 0.001, "€/kWh", "mdi:cash-clock"),
     "tariff_fixed_injection_eur_kwh": ("Prix fixe de réinjection", -1, 2, 0.001, "€/kWh", "mdi:cash-plus"),
     "pri_boiler_settle_s": ("Temporisation PRI après action boiler", 0, 180, 5, "s", "mdi:timer-sync-outline"),
+    "high_load_trigger_w": ("Seuil haute consommation", 1000, 20000, 100, "W", "mdi:flash-alert"),
+    "high_load_release_w": ("Seuil de réarmement après haute consommation", 500, 19000, 100, "W", "mdi:flash-check"),
+    "high_load_confirm_s": ("Confirmation haute consommation", 0, 300, 5, "s", "mdi:timer-alert-outline"),
+    "high_load_restore_s": ("Temporisation de réarmement du délestage", 0, 900, 10, "s", "mdi:timer-check-outline"),
 }
 
 SWITCH_DEFINITIONS = {
@@ -257,6 +269,7 @@ SWITCH_DEFINITIONS = {
     "dishwasher_enabled": ("Gestion lave-vaisselle", "mdi:dishwasher"),
     "solar_advisor_enabled": ("Conseiller solaire EMS 2", "mdi:weather-sunny-alert"),
     "dynamic_negative_price_charge_enabled": ("Charge réseau si prix dynamique négatif", "mdi:transmission-tower-import"),
+    "high_load_shed_enabled": ("Délestage haute consommation", "mdi:home-lightning-bolt-outline"),
 }
 
 # Legacy helpers are read only once at first setup to preserve the user's existing tuning.

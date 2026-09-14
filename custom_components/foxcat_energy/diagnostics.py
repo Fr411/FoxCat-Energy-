@@ -15,6 +15,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         "settings": dict(coordinator.settings),
         "core": dict(coordinator.core_state),
         "pri": dict(coordinator.pri_state),
+        "load_shed": dict(coordinator.load_shed_state),
         "snapshot": {
             "pv_w": snap.pv_w,
             "house_w": snap.house_w,

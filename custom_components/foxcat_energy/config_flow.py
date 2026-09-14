@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import time
+from uuid import uuid4
 from typing import Any
 
 import voluptuous as vol
@@ -43,6 +44,7 @@ from .const import (
     CONF_GRID_LEGACY_SENSOR,
     CONF_HOUSE_SENSOR,
     CONF_INSTALLATION_NAME,
+    CONF_MACHINES_V13,
     CONF_PRICE_AVG_TODAY,
     CONF_PRICE_AVG_TOMORROW,
     CONF_PRICE_CURRENT,
@@ -76,6 +78,8 @@ from .const import (
     CONF_WASHER_SOCKET,
     DOMAIN,
 )
+from .machines import records_for_options
+
 
 
 def _entity(domain: str | list[str], device_class: str | None = None) -> selector.EntitySelector:
@@ -167,6 +171,34 @@ def _machines_schema() -> vol.Schema:
         }
     )
 
+
+
+def _machine_record_schema(current: dict[str, Any] | None = None) -> vol.Schema:
+    current = current or {}
+    def opt_entity(key: str, domains: str | list[str]):
+        value = str(current.get(key, "") or "")
+        marker = vol.Optional(key, description={"suggested_value": value}) if value else vol.Optional(key)
+        return marker, _entity(domains)
+
+    cycle_marker, cycle_selector = opt_entity("cycle", ["binary_sensor", "input_boolean"])
+    power_marker, power_selector = opt_entity("power_sensor", "sensor")
+    return vol.Schema({
+        vol.Required("name", default=str(current.get("name", ""))): selector.TextSelector(),
+        vol.Required("switch", default=str(current.get("switch", ""))): _entity("switch"),
+        cycle_marker: cycle_selector,
+        power_marker: power_selector,
+        vol.Optional("automatic", default=bool(current.get("automatic", True))): selector.BooleanSelector(),
+        vol.Optional("sheddable", default=bool(current.get("sheddable", True))): selector.BooleanSelector(),
+        vol.Optional("on_1", default=str(current.get("on_1", "21:30:00"))): selector.TimeSelector(),
+        vol.Optional("off_1", default=str(current.get("off_1", "07:00:00"))): selector.TimeSelector(),
+        vol.Optional("on_2", default=str(current.get("on_2", "10:30:00"))): selector.TimeSelector(),
+        vol.Optional("off_2", default=str(current.get("off_2", "17:00:00"))): selector.TimeSelector(),
+    })
+
+
+def _machine_choice_schema(records: list[dict[str, Any]]) -> vol.Schema:
+    choices = {str(item.get("id")): str(item.get("name") or item.get("id")) for item in records if item.get("id")}
+    return vol.Schema({vol.Required("machine_id"): vol.In(choices)})
 
 def _pricing_schema() -> vol.Schema:
     return vol.Schema(
@@ -338,6 +370,7 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
     def __init__(self) -> None:
         super().__init__()
         self._pending_options: dict[str, Any] | None = None
+        self._selected_machine_id: str | None = None
 
     def _ensure_pending(self) -> dict[str, Any]:
         if self._pending_options is None:
@@ -385,8 +418,61 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
     async def async_step_pri(self, user_input=None):
         return await self._section("pri", user_input)
 
+    def _machine_records(self) -> list[dict[str, Any]]:
+        effective = self._effective()
+        return records_for_options(effective)
+
+    def _store_machine_records(self, records: list[dict[str, Any]]) -> None:
+        self._ensure_pending()[CONF_MACHINES_V13] = records
+
     async def async_step_machines(self, user_input=None):
-        return await self._section("machines", user_input)
+        return self.async_show_menu(
+            step_id="machines",
+            menu_options=["machine_add", "machine_edit", "machine_remove", "init"],
+        )
+
+    async def async_step_machine_add(self, user_input=None):
+        if user_input is None:
+            return self.async_show_form(step_id="machine_add", data_schema=_machine_record_schema())
+        record = _normalise_input(user_input)
+        record["id"] = uuid4().hex[:12]
+        records = self._machine_records()
+        records.append(record)
+        self._store_machine_records(records)
+        return await self.async_step_machines()
+
+    async def async_step_machine_edit(self, user_input=None):
+        records = self._machine_records()
+        if not records:
+            return self.async_abort(reason="no_machines_configured")
+        if user_input is None:
+            return self.async_show_form(step_id="machine_edit", data_schema=_machine_choice_schema(records))
+        self._selected_machine_id = str(user_input["machine_id"])
+        return await self.async_step_machine_edit_form()
+
+    async def async_step_machine_edit_form(self, user_input=None):
+        records = self._machine_records()
+        current = next((item for item in records if str(item.get("id")) == self._selected_machine_id), None)
+        if current is None:
+            return await self.async_step_machines()
+        if user_input is None:
+            return self.async_show_form(step_id="machine_edit_form", data_schema=_machine_record_schema(current))
+        updated = _normalise_input(user_input)
+        updated["id"] = self._selected_machine_id
+        records = [updated if str(item.get("id")) == self._selected_machine_id else item for item in records]
+        self._store_machine_records(records)
+        self._selected_machine_id = None
+        return await self.async_step_machines()
+
+    async def async_step_machine_remove(self, user_input=None):
+        records = self._machine_records()
+        if not records:
+            return self.async_abort(reason="no_machines_configured")
+        if user_input is None:
+            return self.async_show_form(step_id="machine_remove", data_schema=_machine_choice_schema(records))
+        machine_id = str(user_input["machine_id"])
+        self._store_machine_records([item for item in records if str(item.get("id")) != machine_id])
+        return await self.async_step_machines()
 
     async def async_step_pricing(self, user_input=None):
         return await self._section("pricing", user_input)
