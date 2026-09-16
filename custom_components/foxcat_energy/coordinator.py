@@ -159,6 +159,16 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "score_target": 0.0,
             "house_target_level": 100,
             "last_reason": "PRI initialisé.",
+            "frame_id": 0,
+            "pi_integral": 0.0,
+            "pi_output_continuous": 100.0,
+            "pending_frame_id": None,
+            "pending_level": None,
+            "pending_pv_before": None,
+            "solar_state": "PV_UNKNOWN",
+            "solar_potential_min_w": 0.0,
+            "pv_limit_w": 4000.0,
+            "pv_limit_error_w": 0.0,
         }
         self.solar_forecast = SolarForecast()
         self._unsubs: list[Any] = []
@@ -170,6 +180,9 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_boiler_command_at: datetime | None = None
         self._high_load_since: datetime | None = None
         self._high_load_below_since: datetime | None = None
+        self._frame_id = 0
+        self._high_load_high_frames = 0
+        self._high_load_low_frames = 0
         self.load_shed_state: dict[str, Any] = {
             "active": False,
             "reason": "Inactif",
@@ -699,24 +712,26 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_handle_house_frame(self) -> None:
         async with self._core_lock:
             snapshot = self.snapshot()
+            self._frame_id += 1
+            self.pri_state["frame_id"] = self._frame_id
             self.core_state["last_frame"] = snapshot.timestamp
+
+            # N+1 est souverain pour confirmer une commande PRI faite sur N.
+            await self._validate_pending_pri_on_frame(snapshot)
 
             if bool(self.settings.get("regulation_active")):
                 await self._evaluate_high_load(snapshot)
                 await self._core_process_frame(snapshot)
                 if not self.load_shed_state["active"]:
-                    self._maybe_start_pri(snapshot)
+                    await self._run_pri_frame(snapshot)
             else:
                 self.core_state["last_reason"] = "Régulation inactive : télémétrie seulement."
 
             self.async_set_updated_data(self._build_data(snapshot))
 
     async def async_handle_grid_change(self) -> None:
-        """Réagit directement à une nouvelle mesure compteur pour le PRI."""
-        snapshot = self.snapshot()
-        if bool(self.settings.get("regulation_active")):
-            self._maybe_start_pri(snapshot)
-        self.async_set_updated_data(self._build_data(snapshot))
+        """Télémétrie uniquement. Depuis 1.3.200, la trame maison est l'horloge CORE."""
+        self.async_set_updated_data(self._build_data())
 
     async def _core_process_frame(self, snapshot: EnergySnapshot) -> None:
         if not snapshot.valid:
@@ -1095,57 +1110,42 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.warning("FoxCat machine socket command failed for %s (%s): %s", machine.name, socket, err)
 
     async def _evaluate_high_load(self, snapshot: EnergySnapshot) -> None:
-        """Détecte une forte consommation et déleste les charges variables.
+        """Délestage synchronisé sur la trame maison (30 s).
 
-        La mesure de référence est la puissance maison réelle. Le déclenchement
-        et le réarmement sont temporisés et utilisent deux seuils différents
-        afin d'éviter les oscillations. Un cycle machine protégé déjà actif
-        n'est jamais interrompu.
+        2 trames hautes consécutives déclenchent. 5 trames basses réarment.
+        Une mesure maison invalide gèle l'état et n'est jamais assimilée à 0 W.
         """
+        house_id = self.config.get(CONF_HOUSE_SENSOR)
+        if not self._numeric_valid(house_id):
+            self.load_shed_state["reason"] = "Puissance maison inconnue : état de délestage conservé."
+            self._high_load_high_frames = 0
+            self._high_load_low_frames = 0
+            return
         self.load_shed_state["house_w"] = snapshot.house_w
-        enabled = bool(self.settings.get("high_load_shed_enabled"))
-        automatic = str(self.settings.get("mode")) != MODE_MANUAL
+        enabled=bool(self.settings.get("high_load_shed_enabled"))
+        automatic=str(self.settings.get("mode")) != MODE_MANUAL
         if not enabled or not automatic:
-            self._high_load_since = None
-            self._high_load_below_since = None
+            self._high_load_high_frames=self._high_load_low_frames=0
             if self.load_shed_state.get("active"):
-                self.load_shed_state.update({"active": False, "reason": "Délestage indisponible ou mode Manuel", "triggered_at": None})
+                self.load_shed_state.update({"active":False,"reason":"Délestage indisponible ou mode Manuel","triggered_at":None})
                 await self.async_reconcile_machines()
             return
-
-        now = dt_util.now()
-        trigger_w = float(self.settings.get("high_load_trigger_w", 5000.0))
-        release_w = min(float(self.settings.get("high_load_release_w", 3500.0)), trigger_w)
-        confirm_s = max(float(self.settings.get("high_load_confirm_s", 30.0)), 0.0)
-        restore_s = max(float(self.settings.get("high_load_restore_s", 120.0)), 0.0)
-
+        trigger=float(self.settings.get("high_load_trigger_w",5000.0))
+        release=min(float(self.settings.get("high_load_release_w",3500.0)),trigger)
         if not self.load_shed_state.get("active"):
-            self._high_load_below_since = None
-            if snapshot.house_w >= trigger_w:
-                if self._high_load_since is None:
-                    self._high_load_since = now
-                if (now - self._high_load_since).total_seconds() >= confirm_s:
-                    await self._activate_high_load_shed(snapshot, trigger_w)
-            else:
-                self._high_load_since = None
-            return
-
-        # Délestage déjà actif : attendre un retour durable sous le seuil bas.
-        self._high_load_since = None
-        if snapshot.house_w <= release_w:
-            if self._high_load_below_since is None:
-                self._high_load_below_since = now
-            if (now - self._high_load_below_since).total_seconds() >= restore_s:
-                self.load_shed_state.update({
-                    "active": False,
-                    "reason": f"Consommation stabilisée sous {release_w:.0f} W",
-                    "triggered_at": None,
-                })
-                self._high_load_below_since = None
-                self.reset_core("Fin délestage haute consommation : nouvelle acquisition requise.")
-                await self.async_reconcile_machines()
+            self._high_load_low_frames=0
+            self._high_load_high_frames = self._high_load_high_frames + 1 if snapshot.house_w >= trigger else 0
+            if self._high_load_high_frames >= 2:
+                await self._activate_high_load_shed(snapshot,trigger)
+                self._high_load_high_frames=0
         else:
-            self._high_load_below_since = None
+            self._high_load_high_frames=0
+            self._high_load_low_frames = self._high_load_low_frames + 1 if snapshot.house_w <= release else 0
+            if self._high_load_low_frames >= 5:
+                self.load_shed_state.update({"active":False,"reason":f"5 trames sous {release:.0f} W","triggered_at":None})
+                self._high_load_low_frames=0
+                self.reset_core("Fin délestage : 5 trames basses confirmées.")
+                await self.async_reconcile_machines()
 
     async def _activate_high_load_shed(self, snapshot: EnergySnapshot, trigger_w: float) -> None:
         self.load_shed_state.update({
@@ -1201,6 +1201,12 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._pv_below_since = None
             return
         pv = self._float_state(self.config.get(CONF_PV_SENSOR))
+        # Une production bridée ne mesure pas le potentiel solaire. À PRI <100 %,
+        # et particulièrement à 0 %, FoxCat interdit toute conclusion "fin solaire".
+        level = self._rrcr_level()
+        if 0 <= level < 100 or self.pri_state.get("solar_state") in {"PV_LIMITED","PRI_ACK_PENDING","PV_UNKNOWN"}:
+            self._pv_below_since = None
+            return
         threshold = float(self.settings["pri_end_solar_w"])
         now = dt_util.now()
         if pv < threshold:
@@ -1238,18 +1244,8 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _maybe_start_pri(self, snapshot: EnergySnapshot) -> None:
-        mode = str(self.settings.get("mode"))
-        if not bool(self.settings.get("pri_enabled")) or mode not in {MODE_ECO, MODE_ZERO, MODE_DYNAMIC}:
-            return
-        if not self._dynamic_tariff_ok():
-            return
-        if not self._pri_settle_ok():
-            return
-        if snapshot.pv_w < float(self.settings["pri_end_solar_w"]):
-            return
-        if self._pri_task and not self._pri_task.done():
-            return
-        self._pri_task = self.hass.async_create_task(self._run_pri_cycle(snapshot))
+        """Compatibilité 1.3.x : aucune horloge PRI indépendante en 1.3.200."""
+        return
 
     def _pri_guard(self) -> bool:
         return (
@@ -1309,133 +1305,78 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.pri_state["ack_rrcr"] = "FAILED"
             self.pri_state["last_reason"] = f"Échec fail-safe 100 % : {err}"
 
-    async def _run_pri_cycle(self, initial_snapshot: EnergySnapshot) -> None:
-        try:
-            for _index in range(12):
-                if not self._pri_guard():
-                    return
-                t0 = self.snapshot()
-                current_level = self._rrcr_level()
-                code_before = self._rrcr_code()
-                if current_level < 0:
-                    self.pri_state.update({"ack_rrcr": "FAILED", "last_reason": f"Code RRCR inconnu : {code_before}."})
-                    return
+    def _update_pri_pv_comparator(self, snapshot: EnergySnapshot, level: int) -> None:
+        max_w=float(self.settings.get("pri_step_w",400.0))*10.0
+        limit=max_w*max(level,0)/100.0
+        tol=float(self.settings.get("pri_pv_compare_tolerance_w",200.0))
+        err=snapshot.pv_w-limit
+        if level <= 0:
+            state="PV_UNKNOWN"
+            potential=0.0
+        elif abs(err) <= tol:
+            state="PV_LIMITED"
+            potential=max(limit-tol,0.0)
+        elif snapshot.pv_w < limit-tol:
+            state="PV_BELOW_LIMIT"
+            potential=max(snapshot.pv_w,0.0)
+        else:
+            state="PRI_INCONSISTENT"
+            potential=max(snapshot.pv_w,0.0)
+        self.pri_state.update({"solar_state":state,"solar_potential_min_w":potential,
+                               "pv_limit_w":limit,"pv_limit_error_w":err})
 
-                self.pri_state.update({"current_level": current_level, "code": code_before, "ack_rrcr": "IDLE", "ack_inverter": "IDLE", "ack_grid": "IDLE"})
-
-                # La trame qui déclenche le cycle est déjà une mesure réseau fraîche.
-                # On décide donc immédiatement sur l'état courant au lieu d'attendre
-                # 30 s puis d'agir sur une ancienne valeur.
-                t0 = self.snapshot()
-                if not self._pri_guard():
-                    return
-
-                mode = str(self.settings.get("mode"))
-                if mode == MODE_DYNAMIC:
-                    injection = self.prices().get("injection")
-                    boiler_absorbing = self.snapshot().boiler_on or str(self.core_state.get("boiler_demand")) in {BOILER_HEAT_45, BOILER_BOOST_65}
-                    decision = decide_dynamic(t0, current_level, self.settings, injection, boiler_absorbing)
-                else:
-                    decision = decide_zero(t0, current_level, self.settings)
-
-                self.pri_state.update(
-                    {
-                        "target_level": decision.target_level,
-                        "direction": decision.direction,
-                        "score_current": decision.score_current,
-                        "score_target": decision.score_target,
-                        "house_target_level": decision.house_target_level if decision.house_target_level is not None else current_level,
-                        "last_reason": decision.reason,
-                    }
-                )
-
-                if decision.direction == "maintien":
-                    await asyncio.sleep(30)
-                    final = self.snapshot()
-                    self.pri_state["ack_grid"] = self._classify_pri_grid(final)
-                    return
-
-                target_code = RRCR_LEVEL_TO_CODE[decision.target_level]
-                pv_before = self._float_state(self.config.get(CONF_PV_SENSOR))
-                if not self._pri_guard():
-                    return
-                await self._apply_rrcr_level(decision.target_level)
-                ok = await self._wait_rrcr_code(target_code)
-                if not ok and self._pri_guard():
-                    await self._apply_rrcr_level(decision.target_level)
-                    ok = await self._wait_rrcr_code(target_code)
-                if not ok:
-                    self.pri_state["ack_rrcr"] = "FAILED"
-                    await self._apply_rrcr_level(current_level)
-                    return
-                self.pri_state["ack_rrcr"] = "OK"
-
-                await asyncio.sleep(30)
-                if not self._pri_guard():
-                    return
-                final = self.snapshot()
-                ack_inv = self._ack_inverter(decision.direction, pv_before, final.pv_w, decision.target_level, t0, final)
-                if ack_inv == "FAILED":
-                    if not self._pri_guard():
-                        return
-                    await self._apply_rrcr_level(decision.target_level)
-                    await asyncio.sleep(15)
-                    retry = self.snapshot()
-                    ack_inv = self._ack_inverter(decision.direction, pv_before, retry.pv_w, decision.target_level, t0, retry)
-                    final = retry
-                    if ack_inv == "FAILED":
-                        await self._apply_rrcr_level(current_level)
-                        self.pri_state["ack_inverter"] = "FAILED"
-                        return
-                self.pri_state["ack_inverter"] = ack_inv
-                grid_ack = self._classify_pri_grid(final)
-                self.pri_state["ack_grid"] = grid_ack
-                self.pri_state["current_level"] = decision.target_level
-                self.pri_state["code"] = target_code
-
-                if decision.direction == "remontee" and final.export_w > float(self.settings["pri_export_acceptable_w"]):
-                    await self._apply_rrcr_level(current_level)
-                    self.pri_state.update({"target_level": current_level, "current_level": current_level, "code": code_before, "ack_grid": "ROLLBACK", "last_reason": "Remontée PRI annulée : réinjection excessive après validation."})
-                    return
-                if grid_ack in {"OPTIMAL", "ACCEPTABLE"}:
-                    return
-                # Otherwise T+60 becomes the new reference and the next internal cycle may act one more step.
-        except asyncio.CancelledError:
+    async def _validate_pending_pri_on_frame(self, snapshot: EnergySnapshot) -> None:
+        pending=self.pri_state.get("pending_level")
+        pending_frame=self.pri_state.get("pending_frame_id")
+        if pending is None or pending_frame is None or self._frame_id <= int(pending_frame):
             return
-        except Exception as err:  # pragma: no cover
-            _LOGGER.exception("PRI cycle failed: %s", err)
-            self.pri_state["last_reason"] = f"Erreur PRI : {err}"
-            self.pri_state["ack_grid"] = "FAILED"
-        finally:
-            self.async_set_updated_data(self._build_data())
+        level=self._rrcr_level()
+        if level != int(pending):
+            self.pri_state["ack_rrcr"]="FAILED"
+            self.pri_state["last_reason"]=f"ACK N+1 : RRCR {level}% != commande {pending}%."
+        else:
+            self.pri_state["ack_rrcr"]="OK"
+            self._update_pri_pv_comparator(snapshot,level)
+            self.pri_state["ack_inverter"]="OK" if self.pri_state["solar_state"]!="PRI_INCONSISTENT" else "FAILED"
+            self.pri_state["ack_grid"]=self._classify_pri_grid(snapshot)
+        self.pri_state["pending_level"]=None
+        self.pri_state["pending_frame_id"]=None
+        self.pri_state["pending_pv_before"]=None
 
-    def _ack_inverter(self, direction: str, pv_before: float, pv_after: float, target_level: int, t0: EnergySnapshot, final: EnergySnapshot) -> str:
-        limit_w = float(self.settings["inverter_power_w"]) * target_level / 100.0
-        tolerance = float(self.settings["pri_inverter_ack_tolerance_w"])
-        if direction == "descente":
-            if pv_before > limit_w + tolerance:
-                return "OK" if pv_after <= limit_w + tolerance else "FAILED"
-            return "NON_VERIFIABLE"
-        if direction == "remontee":
-            if (
-                pv_after >= pv_before + float(self.settings["pri_up_ack_delta_w"])
-                or final.import_w < t0.import_w - float(self.settings["pri_grid_ack_delta_w"])
-                or final.export_w > t0.export_w + float(self.settings["pri_grid_ack_delta_w"])
-            ):
-                return "OK"
-            return "NON_VERIFIABLE"
-        return "NON_VERIFIABLE"
-
-    def _classify_pri_grid(self, snap: EnergySnapshot) -> str:
-        if snap.export_w <= float(self.settings["pri_export_optimal_w"]) and snap.import_w <= float(self.settings["pri_import_optimal_w"]):
-            return "OPTIMAL"
-        if snap.export_w <= float(self.settings["pri_export_acceptable_w"]) and snap.import_w <= float(self.settings["pri_import_acceptable_w"]):
-            return "ACCEPTABLE"
-        if snap.export_w > float(self.settings["pri_export_acceptable_w"]):
-            return "EXPORT_TROP_ELEVE"
-        if snap.import_w > float(self.settings["pri_import_acceptable_w"]):
-            return "IMPORT_TROP_ELEVE"
-        return "ACCEPTABLE"
+    async def _run_pri_frame(self, snapshot: EnergySnapshot) -> None:
+        """Une seule décision PRI par nouvelle trame maison."""
+        if not self._pri_guard() or self.pri_state.get("pending_level") is not None:
+            return
+        current=self._rrcr_level()
+        if current < 0:
+            self.pri_state.update({"ack_rrcr":"FAILED","last_reason":"Code RRCR inconnu."})
+            return
+        self._update_pri_pv_comparator(snapshot,current)
+        mode=str(self.settings.get("mode"))
+        if mode == MODE_DYNAMIC:
+            injection=self.prices().get("injection")
+            # dynamique favorable: libération; sinon PI réseau
+            d=decide_dynamic(snapshot,current,self.settings,injection,snapshot.boiler_on)
+            integral=float(self.pri_state.get("pi_integral",0.0))
+            continuous=float(current)
+        else:
+            d,integral,continuous=pi_zero(snapshot,current,float(self.pri_state.get("pi_integral",0.0)),self.settings)
+            self.pri_state["pi_integral"]=integral
+            self.pri_state["pi_output_continuous"]=continuous
+        self.pri_state.update({"current_level":current,"target_level":d.target_level,
+                               "direction":d.direction,"last_reason":d.reason})
+        if d.direction=="maintien":
+            self.pri_state["ack_grid"]=self._classify_pri_grid(snapshot)
+            return
+        target_code=RRCR_LEVEL_TO_CODE[d.target_level]
+        await self._apply_rrcr_level(d.target_level)
+        if not await self._wait_rrcr_code(target_code):
+            self.pri_state["ack_rrcr"]="FAILED"
+            await self._apply_rrcr_level(current)
+            return
+        self.pri_state.update({"ack_rrcr":"PENDING","ack_inverter":"PENDING","ack_grid":"PENDING",
+                               "pending_level":d.target_level,"pending_frame_id":self._frame_id,
+                               "pending_pv_before":snapshot.pv_w})
 
     async def async_reset_cycle(self) -> None:
         self.reset_core("Cycle EMS réinitialisé manuellement.")
