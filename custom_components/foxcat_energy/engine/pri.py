@@ -8,6 +8,30 @@ def clamp(value: float, low: float, high: float) -> float:
 def quantize_10(value: float) -> int:
     return int(clamp(round(value / 10.0) * 10, 0, 100))
 
+
+def score(import_w: float, export_w: float, weight_import: float, weight_export: float) -> float:
+    """Score historique conservé pour compatibilité FoxCat 1.3.x."""
+    return max(import_w, 0.0) * weight_import + max(export_w, 0.0) * weight_export
+
+
+def house_target_level(
+    house_w: float,
+    step_w: float,
+    weight_import: float,
+    weight_export: float,
+) -> tuple[int, float, float]:
+    """API historique conservée pour engine.__init__ et les diagnostics."""
+    if step_w <= 0:
+        return 100, 0.0, 0.0
+    low_steps = int(clamp(math.floor(max(house_w, 0.0) / step_w), 0, 10))
+    high_steps = int(clamp(math.ceil(max(house_w, 0.0) / step_w), 0, 10))
+    low_power = low_steps * step_w
+    high_power = high_steps * step_w
+    low_score = score(max(house_w-low_power,0.0), max(low_power-house_w,0.0), weight_import, weight_export)
+    high_score = score(max(house_w-high_power,0.0), max(high_power-house_w,0.0), weight_import, weight_export)
+    target = low_steps * 10 if low_score <= high_score else high_steps * 10
+    return target, low_score, high_score
+
 def pi_zero(
     snapshot: EnergySnapshot,
     current_level: int,
