@@ -183,6 +183,8 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._frame_id = 0
         self._high_load_high_frames = 0
         self._high_load_low_frames = 0
+        self._sensor_reset_active = False
+        self._valid_frames_after_reset = 0
         self.load_shed_state: dict[str, Any] = {
             "active": False,
             "reason": "Inactif",
@@ -710,13 +712,59 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(self._build_data())
 
     async def async_handle_house_frame(self) -> None:
+        """Traite uniquement une trame énergétique complète et valide.
+
+        Les resets périodiques Smappee peuvent rendre brièvement les capteurs
+        unknown/unavailable. Ces événements ne sont pas des trames EMS :
+        - aucun frame_id n'est consommé ;
+        - aucun ACK PRI N+1 n'est validé/échoué ;
+        - l'intégrale PI est conservée ;
+        - le niveau PRI est conservé ;
+        - l'état du délestage est conservé ;
+        - les cycles protégés et le boiler ne sont pas modifiés par optimisation.
+        Après le retour des mesures, une trame complète de stabilisation est
+        exigée avant de reprendre les décisions énergétiques.
+        """
         async with self._core_lock:
             snapshot = self.snapshot()
+
+            if not snapshot.valid:
+                self._sensor_reset_active = True
+                self._valid_frames_after_reset = 0
+                self.core_state["last_reason"] = (
+                    "Reset/indisponibilité capteurs : décisions EMS gelées, "
+                    "PRI/PI/ACK/délestage conservés."
+                )
+                self.pri_state["last_reason"] = (
+                    "Mesures transitoirement invalides : PRI conservé, "
+                    "intégrale PI gelée, attente d'une trame complète."
+                )
+                self.async_set_updated_data(self._build_data(snapshot))
+                return
+
+            if self._sensor_reset_active:
+                self._valid_frames_after_reset += 1
+                if self._valid_frames_after_reset < 2:
+                    # Première trame valide après reset = stabilisation seulement.
+                    self.core_state["last_reason"] = (
+                        "Capteurs revenus : première trame valide de stabilisation, "
+                        "aucune décision énergétique."
+                    )
+                    self.pri_state["last_reason"] = (
+                        "Reprise capteurs : stabilisation N0, PRI inchangé."
+                    )
+                    self.async_set_updated_data(self._build_data(snapshot))
+                    return
+                self._sensor_reset_active = False
+                self._valid_frames_after_reset = 0
+                self.reset_core("Capteurs stabilisés après reset : reprise du CORE.")
+
+            # Seules les vraies trames valides incrémentent N.
             self._frame_id += 1
             self.pri_state["frame_id"] = self._frame_id
             self.core_state["last_frame"] = snapshot.timestamp
 
-            # N+1 est souverain pour confirmer une commande PRI faite sur N.
+            # Une commande faite sur N est vérifiée uniquement sur une vraie N+1.
             await self._validate_pending_pri_on_frame(snapshot)
 
             if bool(self.settings.get("regulation_active")):
@@ -1248,15 +1296,27 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return
 
     def _pri_guard(self) -> bool:
-        return (
-            bool(self.settings.get("regulation_active"))
-            and bool(self.settings.get("pri_enabled"))
-            and str(self.settings.get("mode")) in {MODE_ECO, MODE_ZERO, MODE_DYNAMIC}
-            and self._dynamic_tariff_ok()
-            and self._pri_settle_ok()
-            and self._float_state(self.config.get(CONF_PV_SENSOR)) >= float(self.settings["pri_end_solar_w"])
-            and self.core_state.get("phase") != PHASE_WAIT_ACK
-        )
+        """Autorise le PRI et expose la raison exacte d'un éventuel blocage."""
+        if not bool(self.settings.get("regulation_active")):
+            self.pri_state["guard_reason"] = "regulation_inactive"
+            return False
+        if not bool(self.settings.get("pri_enabled")):
+            self.pri_state["guard_reason"] = "pri_disabled"
+            return False
+        if str(self.settings.get("mode")) not in {MODE_ECO, MODE_ZERO, MODE_DYNAMIC}:
+            self.pri_state["guard_reason"] = f"mode_{self.settings.get('mode')}"
+            return False
+        if not self._dynamic_tariff_ok():
+            self.pri_state["guard_reason"] = "dynamic_tariff_not_ready"
+            return False
+        if not self._pri_settle_ok():
+            self.pri_state["guard_reason"] = "boiler_settle"
+            return False
+        if self.core_state.get("phase") == PHASE_WAIT_ACK:
+            self.pri_state["guard_reason"] = "core_wait_boiler_ack"
+            return False
+        self.pri_state["guard_reason"] = "OK"
+        return True
 
 
     def _rrcr_code(self) -> str:
@@ -1326,6 +1386,8 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                "pv_limit_w":limit,"pv_limit_error_w":err})
 
     async def _validate_pending_pri_on_frame(self, snapshot: EnergySnapshot) -> None:
+        if not snapshot.valid:
+            return
         pending=self.pri_state.get("pending_level")
         pending_frame=self.pri_state.get("pending_frame_id")
         if pending is None or pending_frame is None or self._frame_id <= int(pending_frame):
@@ -1344,8 +1406,17 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.pri_state["pending_pv_before"]=None
 
     async def _run_pri_frame(self, snapshot: EnergySnapshot) -> None:
-        """Une seule décision PRI par nouvelle trame maison."""
-        if not self._pri_guard() or self.pri_state.get("pending_level") is not None:
+        """Une seule décision PRI par nouvelle trame maison valide."""
+        if not snapshot.valid:
+            self.pri_state["last_reason"] = "PRI gelé : snapshot énergétique incomplet."
+            return
+        if not self._pri_guard():
+            return
+        if self.pri_state.get("pending_level") is not None:
+            self.pri_state["last_reason"] = (
+                f"PRI en attente de validation sur trame N+1 "
+                f"(commande {self.pri_state.get('pending_level')} %)."
+            )
             return
         current=self._rrcr_level()
         if current < 0:
