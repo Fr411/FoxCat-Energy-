@@ -114,6 +114,7 @@ from .engine.load_guard import (
 )
 from .engine.tariff import price_status, tariff_boundaries, tariff_period
 from .machines import MachineDefinition, machine_allowed, machine_definitions, schedule_boundaries
+from .accounting import EnergyAccounting
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -190,6 +191,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "house_w": 0.0,
         }
         self._loaded_existing_state = False
+        self.accounting = EnergyAccounting()
 
         super().__init__(
             hass,
@@ -206,6 +208,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stored = await self._store.async_load()
         if isinstance(stored, dict):
             self.settings.update(stored.get("settings", {}))
+            self.accounting.restore(stored.get("accounting"))
             sf = stored.get("solar_forecast")
             if isinstance(sf, dict):
                 self.solar_forecast = SolarForecast(**{k: sf.get(k, getattr(SolarForecast(), k)) for k in SolarForecast.__dataclass_fields__})
@@ -274,6 +277,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._store.async_save(
             {
                 "settings": self.settings,
+                "accounting": self.accounting.dump(),
                 "solar_forecast": {
                     "available": self.solar_forecast.available,
                     "start": self.solar_forecast.start,
@@ -731,11 +735,11 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._valid_frames_after_reset = 0
                 self.core_state["last_reason"] = (
                     "Reset/indisponibilité capteurs : décisions EMS gelées, "
-                    "PRI/PI/ACK/délestage conservés."
+                    "PRI/ACK/délestage conservés."
                 )
                 self.pri_state["last_reason"] = (
                     "Mesures transitoirement invalides : PRI conservé, "
-                    "intégrale PI gelée, attente d'une trame complète."
+                    "état PRI conservé, attente d'une trame complète."
                 )
                 self.async_set_updated_data(self._build_data(snapshot))
                 return
@@ -761,6 +765,16 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._frame_id += 1
             self.pri_state["frame_id"] = self._frame_id
             self.core_state["last_frame"] = snapshot.timestamp
+
+            # Comptabilité énergétique : observe la trame, sans influencer le CORE.
+            accounting_appliances = self.machine_states()
+            accounting_appliances.append({
+                "id": "boiler",
+                "name": "Chauffe-eau",
+                "power_w": snapshot.boiler_power_w,
+            })
+            if self.accounting.process(snapshot, self.prices(), accounting_appliances):
+                self.hass.async_create_task(self._async_save())
 
             # Une commande faite sur N est vérifiée uniquement sur une vraie N+1.
             await self._validate_pending_pri_on_frame(snapshot)
@@ -1616,6 +1630,7 @@ Cherche une fenêtre solaire exploitable avant la prochaine échéance énergét
             "pri": dict(self.pri_state),
             "solar": self.solar_forecast,
             "prices": self.prices(),
+            "accounting": self.accounting.view(),
             "legacy_conflict": self._legacy_conflict(),
             "load_shed": dict(self.load_shed_state),
             "machine_guard": {

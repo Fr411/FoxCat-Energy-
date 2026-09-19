@@ -5,7 +5,7 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfPower, UnitOfTemperature
+from homeassistant.const import PERCENTAGE, UnitOfPower, UnitOfTemperature, UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -77,9 +77,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         FoxCatNumericSensor(c, "cout_prelevement_instantane", "Coût instantané du prélèvement", "mdi:cash-minus", "pricing", lambda d: d["prices"].get("import_cost_rate_eur_h"), "€/h"),
         FoxCatNumericSensor(c, "valeur_reinjection_instantanee", "Valeur instantanée de la réinjection", "mdi:cash-plus", "pricing", lambda d: d["prices"].get("export_value_rate_eur_h"), "€/h"),
         FoxCatNumericSensor(c, "solde_reseau_instantane", "Solde financier instantané réseau", "mdi:scale-balance", "pricing", lambda d: d["prices"].get("net_cost_rate_eur_h"), "€/h"),
+        FoxCatNumericSensor(c, "bilan_conso_jour", "Consommation maison aujourd'hui", "mdi:home-lightning-bolt", "accounting", lambda d: d["accounting"]["today"]["house_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        FoxCatNumericSensor(c, "bilan_pv_jour", "Production photovoltaïque aujourd'hui", "mdi:solar-power", "accounting", lambda d: d["accounting"]["today"]["pv_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        FoxCatNumericSensor(c, "bilan_autoconso_jour", "Énergie photovoltaïque autoconsommée aujourd'hui", "mdi:home-import-outline", "accounting", lambda d: d["accounting"]["today"]["self_consumed_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        FoxCatNumericSensor(c, "bilan_import_jour", "Énergie prélevée aujourd'hui", "mdi:transmission-tower-import", "accounting", lambda d: d["accounting"]["today"]["import_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        FoxCatNumericSensor(c, "bilan_export_jour", "Énergie réinjectée aujourd'hui", "mdi:transmission-tower-export", "accounting", lambda d: d["accounting"]["today"]["export_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        FoxCatNumericSensor(c, "bilan_autoconsommation_jour", "Taux d'autoconsommation aujourd'hui", "mdi:percent-circle-outline", "accounting", lambda d: d["accounting"]["today"]["autoconsumption_pct"], PERCENTAGE),
+        FoxCatNumericSensor(c, "bilan_autonomie_jour", "Taux d'autonomie aujourd'hui", "mdi:home-percent-outline", "accounting", lambda d: d["accounting"]["today"]["autonomy_pct"], PERCENTAGE),
+        FoxCatNumericSensor(c, "bilan_cout_reseau_jour", "Coût prélèvement réseau aujourd'hui", "mdi:cash-minus", "accounting", lambda d: d["accounting"]["today"]["import_cost_eur"], "€"),
+        FoxCatNumericSensor(c, "bilan_valeur_injection_jour", "Valeur réinjection aujourd'hui", "mdi:cash-plus", "accounting", lambda d: d["accounting"]["today"]["export_value_eur"], "€"),
+        FoxCatNumericSensor(c, "bilan_cout_net_jour", "Coût énergétique net aujourd'hui", "mdi:cash-sync", "accounting", lambda d: d["accounting"]["today"]["net_grid_cost_eur"], "€"),
+        FoxCatNumericSensor(c, "bilan_gain_solaire_jour", "Gain solaire estimé aujourd'hui", "mdi:solar-power-variant", "accounting", lambda d: d["accounting"]["today"]["solar_gain_eur"], "€"),
+        FoxCatNumericSensor(c, "bilan_conso_mois", "Consommation maison ce mois", "mdi:calendar-month", "accounting", lambda d: d["accounting"]["month"]["house_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        FoxCatNumericSensor(c, "bilan_pv_mois", "Production photovoltaïque ce mois", "mdi:calendar-month-outline", "accounting", lambda d: d["accounting"]["month"]["pv_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        FoxCatNumericSensor(c, "bilan_cout_net_mois", "Coût énergétique net ce mois", "mdi:cash-multiple", "accounting", lambda d: d["accounting"]["month"]["net_grid_cost_eur"], "€"),
+        FoxCatNumericSensor(c, "bilan_conso_annee", "Consommation maison cette année", "mdi:calendar", "accounting", lambda d: d["accounting"]["year"]["house_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        FoxCatNumericSensor(c, "bilan_pv_annee", "Production photovoltaïque cette année", "mdi:calendar-sun", "accounting", lambda d: d["accounting"]["year"]["pv_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+        FoxCatNumericSensor(c, "bilan_cout_net_annee", "Coût énergétique net cette année", "mdi:cash-check", "accounting", lambda d: d["accounting"]["year"]["net_grid_cost_eur"], "€"),
         FoxCatValueSensor(c, "derniere_trame", "Dernière trame énergétique", "mdi:clock-check-outline", "ems", lambda d: _iso(d["core"].get("last_frame"))),
         FoxCatValueSensor(c, "derniere_action", "Dernière action EMS", "mdi:clock-outline", "ems", lambda d: _iso(d["core"].get("last_action"))),
     ]
+    # Un jeu de capteurs est créé automatiquement pour chaque appareil FoxCat mesuré.
+    appliance_defs = [("boiler", "Chauffe-eau")] + [(m.machine_id, m.name) for m in c.machines if m.power_sensor]
+    for appliance_id, appliance_name in appliance_defs:
+        safe = appliance_id.replace(" ", "_").lower()
+        entities.extend([
+            FoxCatNumericSensor(c, f"appareil_{safe}_energie_jour", f"{appliance_name} énergie aujourd'hui", "mdi:counter", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("energy_kwh",0.0), UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+            FoxCatNumericSensor(c, f"appareil_{safe}_solaire_jour", f"{appliance_name} solaire aujourd'hui", "mdi:white-balance-sunny", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("solar_kwh",0.0), UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+            FoxCatNumericSensor(c, f"appareil_{safe}_reseau_jour", f"{appliance_name} réseau aujourd'hui", "mdi:transmission-tower-import", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("grid_kwh",0.0), UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+            FoxCatNumericSensor(c, f"appareil_{safe}_cout_jour", f"{appliance_name} coût aujourd'hui", "mdi:cash", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("cost_eur",0.0), "€"),
+        ])
     async_add_entities(entities)
 
 
@@ -106,12 +133,14 @@ class FoxCatValueSensor(FoxCatEntity, SensorEntity):
 class FoxCatNumericSensor(FoxCatEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, coordinator, key: str, name: str, icon: str, device: str, getter: Callable[[dict[str, Any]], Any], unit: str | None = None, device_class=None):
+    def __init__(self, coordinator, key: str, name: str, icon: str, device: str, getter: Callable[[dict[str, Any]], Any], unit: str | None = None, device_class=None, state_class=None):
         super().__init__(coordinator, key, name, icon, device)
         self._getter = getter
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
-        if unit in {PERCENTAGE, "€/kWh"} or unit is None:
+        if state_class is not None:
+            self._attr_state_class = state_class
+        elif unit in {PERCENTAGE, "€/kWh", "€"} or unit is None:
             self._attr_state_class = None
 
     @property
