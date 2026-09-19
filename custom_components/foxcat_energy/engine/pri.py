@@ -1,99 +1,100 @@
 from __future__ import annotations
+
 import math
+
 from .models import EnergySnapshot, PriDecision
+
 
 def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
-def quantize_10(value: float) -> int:
-    return int(clamp(round(value / 10.0) * 10, 0, 100))
-
 
 def score(import_w: float, export_w: float, weight_import: float, weight_export: float) -> float:
-    """Score historique conservé pour compatibilité FoxCat 1.3.x."""
     return max(import_w, 0.0) * weight_import + max(export_w, 0.0) * weight_export
 
 
-def house_target_level(
-    house_w: float,
-    step_w: float,
-    weight_import: float,
-    weight_export: float,
-) -> tuple[int, float, float]:
-    """API historique conservée pour engine.__init__ et les diagnostics."""
+def house_target_level(house_w: float, step_w: float, weight_import: float, weight_export: float) -> tuple[int, float, float]:
     if step_w <= 0:
         return 100, 0.0, 0.0
     low_steps = int(clamp(math.floor(max(house_w, 0.0) / step_w), 0, 10))
     high_steps = int(clamp(math.ceil(max(house_w, 0.0) / step_w), 0, 10))
     low_power = low_steps * step_w
     high_power = high_steps * step_w
-    low_score = score(max(house_w-low_power,0.0), max(low_power-house_w,0.0), weight_import, weight_export)
-    high_score = score(max(house_w-high_power,0.0), max(high_power-house_w,0.0), weight_import, weight_export)
+    low_score = score(max(house_w - low_power, 0.0), max(low_power - house_w, 0.0), weight_import, weight_export)
+    high_score = score(max(house_w - high_power, 0.0), max(high_power - house_w, 0.0), weight_import, weight_export)
     target = low_steps * 10 if low_score <= high_score else high_steps * 10
     return target, low_score, high_score
 
-def pi_zero(
-    snapshot: EnergySnapshot,
-    current_level: int,
-    integral: float,
-    settings: dict[str, object],
-) -> tuple[PriDecision, float, float]:
-    """PRI PI discret 30 s. Positif réseau = export, négatif = import.
-
-    La sortie continue est conservée en diagnostic puis quantifiée physiquement
-    sur les pas RRCR de 10 %. L'intégrale est bornée (anti-windup).
-    """
-    dt = float(settings.get("pri_pi_dt_s", 30.0))
-    target_export = float(settings.get("pri_pi_target_export_w", 75.0))
-    kp = float(settings.get("pri_pi_kp", 0.012))
-    ki = float(settings.get("pri_pi_ki", 0.00010))
-    i_limit = float(settings.get("pri_pi_integral_limit_ws", 120000.0))
-    deadband = float(settings.get("pri_pi_deadband_w", 100.0))
-
-    # >0 = trop d'export => il faut réduire le niveau PRI.
-    error = snapshot.grid_net_w - target_export
-    if abs(error) <= deadband:
-        error = 0.0
-
-    proposed_i = clamp(integral + error * dt, -i_limit, i_limit)
-    correction_pct = kp * error + ki * proposed_i
-    continuous = clamp(float(current_level) - correction_pct, 0.0, 100.0)
-    target = quantize_10(continuous)
-
-    # Anti-windup conditionnel aux saturations.
-    if (continuous <= 0.0 and error > 0) or (continuous >= 100.0 and error < 0):
-        proposed_i = integral
-        correction_pct = kp * error + ki * proposed_i
-        continuous = clamp(float(current_level) - correction_pct, 0.0, 100.0)
-        target = quantize_10(continuous)
-
-    # Une seule marche physique par trame pour préserver la stabilité.
-    if target < current_level:
-        target = max(current_level - 10, 0)
-        direction = "descente"
-    elif target > current_level:
-        target = min(current_level + 10, 100)
-        direction = "remontee"
-    else:
-        direction = "maintien"
-
-    reason = (
-        f"PRI-PI : réseau={snapshot.grid_net_w:.0f} W, consigne export={target_export:.0f} W, "
-        f"erreur={error:.0f} W, sortie continue={continuous:.1f} %, cible RRCR={target} %."
-    )
-    return PriDecision(direction,current_level,target,reason,0.0,0.0,None), proposed_i, continuous
 
 def decide_zero(snapshot: EnergySnapshot, current_level: int, settings: dict[str, object]) -> PriDecision:
-    # Compatibilité tests/outils : décision PI sans mémoire externe.
-    return pi_zero(snapshot,current_level,0.0,settings)[0]
+    step_w = float(settings["pri_step_w"])
+    wi = float(settings["pri_weight_import"])
+    we = float(settings["pri_weight_export"])
+    export_opt = float(settings["pri_export_optimal_w"])
+    import_opt = float(settings["pri_import_optimal_w"])
+    margin = float(settings["pri_score_margin"])
 
-def decide_dynamic(snapshot: EnergySnapshot, current_level: int, settings: dict[str, object],
-                   injection_price: float | None, boiler_absorbing: bool) -> PriDecision:
-    # Le dynamique conserve la libération si l'injection est rémunératrice,
-    # sinon utilise le même PI réseau.
-    lucrative=float(settings.get("dynamic_injection_lucrative_threshold",-0.01))
-    if injection_price is None or injection_price < lucrative:
-        target=min(current_level+10,100)
-        return PriDecision("remontee" if target>current_level else "maintien",current_level,target,
-                           "Prix d'injection favorable/inconnu : libération progressive PRI.")
-    return decide_zero(snapshot,current_level,settings)
+    house_target, _, _ = house_target_level(snapshot.house_w, step_w, wi, we)
+    current_score = score(snapshot.import_w, snapshot.export_w, wi, we)
+    net_import_minus_export = snapshot.import_w - snapshot.export_w
+
+    # One lower inverter stage means roughly step_w less PV, therefore +step_w on import-minus-export.
+    net_down = net_import_minus_export + step_w
+    down_import = max(net_down, 0.0)
+    down_export = max(-net_down, 0.0)
+    down_score = score(down_import, down_export, wi, we)
+
+    # One higher inverter stage means roughly step_w more PV.
+    net_up = net_import_minus_export - step_w
+    up_import = max(net_up, 0.0)
+    up_export = max(-net_up, 0.0)
+    up_score = score(up_import, up_export, wi, we)
+
+    if snapshot.export_w <= export_opt and snapshot.import_w <= import_opt:
+        return PriDecision("maintien", current_level, current_level, "Réseau dans la zone optimale.", current_score, current_score, house_target)
+
+    if snapshot.export_w > export_opt and current_level > 0 and down_score + margin < current_score:
+        target = max(current_level - 10, 0)
+        return PriDecision("descente", current_level, target, "Une marche inférieure améliore le compromis import/réinjection.", current_score, down_score, house_target)
+
+    if snapshot.import_w > import_opt and current_level < 100 and up_score + margin < current_score:
+        target = min(current_level + 10, 100)
+        return PriDecision("remontee", current_level, target, "Une marche supérieure réduit le prélèvement sans dégrader le score.", current_score, up_score, house_target)
+
+    return PriDecision("maintien", current_level, current_level, "Aucun palier adjacent n'améliore suffisamment le score.", current_score, current_score, house_target)
+
+
+def decide_dynamic(snapshot: EnergySnapshot, current_level: int, settings: dict[str, object], injection_price: float | None, boiler_absorbing: bool) -> PriDecision:
+    pv_min = float(settings["pri_pv_minimum_w"])
+    injection_lucrative_threshold = float(settings["dynamic_injection_lucrative_threshold"])
+    export_threshold = float(settings["pri_export_threshold_dynamic_w"])
+    import_threshold = float(settings["pri_import_threshold_dynamic_w"])
+    step_w = float(settings["pri_step_w"])
+
+    if snapshot.pv_w < pv_min:
+        target = min(current_level + 10, 100) if current_level < 100 else 100
+        direction = "remontee" if target > current_level else "maintien"
+        return PriDecision(direction, current_level, target, "Production PV trop faible : libération progressive de l'onduleur.")
+
+    if injection_price is None:
+        target = min(current_level + 10, 100) if current_level < 100 else 100
+        direction = "remontee" if target > current_level else "maintien"
+        return PriDecision(direction, current_level, target, "Prix d'injection indisponible : fail-safe à 100 %.")
+
+    if injection_price < injection_lucrative_threshold:
+        target = min(current_level + 10, 100) if current_level < 100 else 100
+        direction = "remontee" if target > current_level else "maintien"
+        return PriDecision(direction, current_level, target, "Injection rémunératrice : onduleur libéré progressivement.")
+
+    if snapshot.import_w > import_threshold and current_level < 100:
+        target = min(current_level + 10, 100)
+        return PriDecision("remontee", current_level, target, "Import réseau : remontée PRI pour privilégier l'autoconsommation.")
+
+    if snapshot.export_w > export_threshold and current_level > 0 and not boiler_absorbing:
+        projected_export = snapshot.export_w - step_w
+        if projected_export >= 0:
+            target = max(current_level - 10, 0)
+            return PriDecision("descente", current_level, target, "Export non rémunérateur : réduction d'une marche sans import projeté.")
+        return PriDecision("maintien", current_level, current_level, "La marche inférieure provoquerait volontairement un import réseau.")
+
+    return PriDecision("maintien", current_level, current_level, "PRI dynamique stable.")

@@ -160,8 +160,6 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "house_target_level": 100,
             "last_reason": "PRI initialisé.",
             "frame_id": 0,
-            "pi_integral": 0.0,
-            "pi_output_continuous": 100.0,
             "pending_frame_id": None,
             "pending_level": None,
             "pending_pv_before": None,
@@ -1406,7 +1404,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.pri_state["pending_pv_before"]=None
 
     async def _run_pri_frame(self, snapshot: EnergySnapshot) -> None:
-        """Une seule décision PRI par nouvelle trame maison valide."""
+        """PRI classique : comparaison des marches adjacentes, une marche max/trame."""
         if not snapshot.valid:
             self.pri_state["last_reason"] = "PRI gelé : snapshot énergétique incomplet."
             return
@@ -1414,40 +1412,57 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         if self.pri_state.get("pending_level") is not None:
             self.pri_state["last_reason"] = (
-                f"PRI en attente de validation sur trame N+1 "
-                f"(commande {self.pri_state.get('pending_level')} %)."
+                f"PRI en attente de validation N+1 (commande "
+                f"{self.pri_state.get('pending_level')} %)."
             )
             return
-        current=self._rrcr_level()
+
+        current = self._rrcr_level()
         if current < 0:
             self.pri_state.update({"ack_rrcr":"FAILED","last_reason":"Code RRCR inconnu."})
             return
-        self._update_pri_pv_comparator(snapshot,current)
-        mode=str(self.settings.get("mode"))
+
+        self._update_pri_pv_comparator(snapshot, current)
+        mode = str(self.settings.get("mode"))
         if mode == MODE_DYNAMIC:
-            injection=self.prices().get("injection")
-            # dynamique favorable: libération; sinon PI réseau
-            d=decide_dynamic(snapshot,current,self.settings,injection,snapshot.boiler_on)
-            integral=float(self.pri_state.get("pi_integral",0.0))
-            continuous=float(current)
+            decision = decide_dynamic(
+                snapshot, current, self.settings,
+                self.prices().get("injection"), snapshot.boiler_on
+            )
         else:
-            d,integral,continuous=pi_zero(snapshot,current,float(self.pri_state.get("pi_integral",0.0)),self.settings)
-            self.pri_state["pi_integral"]=integral
-            self.pri_state["pi_output_continuous"]=continuous
-        self.pri_state.update({"current_level":current,"target_level":d.target_level,
-                               "direction":d.direction,"last_reason":d.reason})
-        if d.direction=="maintien":
-            self.pri_state["ack_grid"]=self._classify_pri_grid(snapshot)
+            decision = decide_zero(snapshot, current, self.settings)
+
+        target = int(decision.target_level)
+        if target > current:
+            target = min(current + 10, 100)
+        elif target < current:
+            target = max(current - 10, 0)
+
+        direction = "remontee" if target > current else "descente" if target < current else "maintien"
+        self.pri_state.update({
+            "current_level": current, "target_level": target,
+            "direction": direction, "last_reason": decision.reason
+        })
+
+        if target == current:
+            self.pri_state["ack_grid"] = self._classify_pri_grid(snapshot)
             return
-        target_code=RRCR_LEVEL_TO_CODE[d.target_level]
-        await self._apply_rrcr_level(d.target_level)
+
+        target_code = RRCR_LEVEL_TO_CODE[target]
+        await self._apply_rrcr_level(target)
         if not await self._wait_rrcr_code(target_code):
-            self.pri_state["ack_rrcr"]="FAILED"
+            self.pri_state["ack_rrcr"] = "FAILED"
+            self.pri_state["last_reason"] = (
+                f"PRI classique : RRCR {target}% non confirmé, retour {current}%."
+            )
             await self._apply_rrcr_level(current)
             return
-        self.pri_state.update({"ack_rrcr":"PENDING","ack_inverter":"PENDING","ack_grid":"PENDING",
-                               "pending_level":d.target_level,"pending_frame_id":self._frame_id,
-                               "pending_pv_before":snapshot.pv_w})
+
+        self.pri_state.update({
+            "ack_rrcr":"PENDING","ack_inverter":"PENDING","ack_grid":"PENDING",
+            "pending_level":target,"pending_frame_id":self._frame_id,
+            "pending_pv_before":snapshot.pv_w
+        })
 
     async def async_reset_cycle(self) -> None:
         self.reset_core("Cycle EMS réinitialisé manuellement.")
