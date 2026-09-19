@@ -292,11 +292,24 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _register_listeners(self) -> None:
-        house = self.config.get(CONF_HOUSE_SENSOR)
-        if house:
-            self._unsubs.append(async_track_state_change_event(self.hass, [house], self._on_house_event))
+        # FoxCat 1.4.4 : horloge EMS/PRI unique et déterministe.
+        # Le CORE n'attend plus un "state_changed" du capteur maison :
+        # si deux mesures successives sont identiques, Home Assistant peut ne
+        # produire aucun événement exploitable. Deux ticks fixes par minute
+        # garantissent donc UNE décision EMS/PRI toutes les 30 secondes.
+        #
+        # Décalage de +2 s (xx:02 / xx:32) : laisse le temps aux capteurs
+        # physiques configurés sur 30 s de publier leur nouvelle trame avant
+        # que FoxCat ne fasse son acquisition.
+        self._unsubs.append(
+            async_track_time_change(
+                self.hass,
+                self._on_ems_30s_tick,
+                second=[2, 32],
+            )
+        )
 
-        # Le PRI zéro injection est piloté par les mesures réseau, pas par la
+        # Les changements réseau restent de la télémétrie immédiate.
         # consommation maison. Toute nouvelle trame import/export peut relancer
         # une correction d'une marche.
         grid_entities = [eid for eid in [self.config.get(CONF_GRID_EXPORT_SENSOR), self.config.get(CONF_GRID_IMPORT_SENSOR)] if eid]
@@ -353,6 +366,12 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @callback
     def _on_house_event(self, event: Event) -> None:
+        """Compatibilité interne : une variation maison ne cadence plus le CORE."""
+        self.async_set_updated_data(self._build_data())
+
+    @callback
+    def _on_ems_30s_tick(self, now: datetime) -> None:
+        """Horloge souveraine FoxCat : acquisition + CORE + PRI toutes les 30 s."""
         self.hass.async_create_task(self.async_handle_house_frame())
 
     @callback
@@ -764,6 +783,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Seules les vraies trames valides incrémentent N.
             self._frame_id += 1
             self.pri_state["frame_id"] = self._frame_id
+            self.pri_state["last_30s_tick"] = dt_util.now()
             self.core_state["last_frame"] = snapshot.timestamp
 
             # Comptabilité énergétique : observe la trame, sans influencer le CORE.
@@ -790,7 +810,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.async_set_updated_data(self._build_data(snapshot))
 
     async def async_handle_grid_change(self) -> None:
-        """Télémétrie uniquement. Depuis 1.3.200, la trame maison est l'horloge CORE."""
+        """Télémétrie uniquement. Depuis 1.4.4, l’horloge 30 s est souveraine pour le CORE/PRI."""
         self.async_set_updated_data(self._build_data())
 
     async def _core_process_frame(self, snapshot: EnergySnapshot) -> None:
@@ -1418,7 +1438,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.pri_state["pending_pv_before"]=None
 
     async def _run_pri_frame(self, snapshot: EnergySnapshot) -> None:
-        """PRI FoxCat 1.4.3 : cible maison + correction réseau + comparateur PV/PRI, ±10 % max/trame."""
+        """PRI FoxCat 1.4.5 : compteur réseau maître, ±10 % maximum par tick de 30 s."""
         if not snapshot.valid:
             self.pri_state["last_reason"] = "PRI gelé : snapshot énergétique incomplet."
             return
@@ -1467,7 +1487,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not await self._wait_rrcr_code(target_code):
             self.pri_state["ack_rrcr"] = "FAILED"
             self.pri_state["last_reason"] = (
-                f"PRI 1.4.3 : RRCR {target}% non confirmé, retour {current}%."
+                f"PRI 1.4.5 : RRCR {target}% non confirmé, retour {current}%."
             )
             await self._apply_rrcr_level(current)
             return
