@@ -107,6 +107,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             FoxCatNumericSensor(c, f"appareil_{safe}_reseau_jour", f"{appliance_name} réseau aujourd'hui", "mdi:transmission-tower-import", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("grid_kwh",0.0), UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
             FoxCatNumericSensor(c, f"appareil_{safe}_cout_jour", f"{appliance_name} coût aujourd'hui", "mdi:cash", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("cost_eur",0.0), "€"),
         ])
+    # FoxCat 1.4.1 — classement Coûts & Bilan par appareil Home Assistant.
+    for entity in entities:
+        key = getattr(entity, "_foxcat_key", None) or getattr(entity, "_attr_unique_id", "")
+        text = str(key).lower()
+
+        # Maison totale : consommation, réseau, coût net et autonomie.
+        if any(token in text for token in (
+            "bilan_conso_", "bilan_import_", "bilan_cout_reseau_",
+            "bilan_cout_net_", "bilan_autonomie_"
+        )):
+            if isinstance(entity, FoxCatNumericSensor):
+                entity._foxcat_device_identifier = f"{c.entry.entry_id}_accounting_house"
+                entity._foxcat_device_name = "FoxCat Energy – Maison totale"
+
+        # Photovoltaïque : production, autoconsommation, export et valeur solaire.
+        elif any(token in text for token in (
+            "bilan_pv_", "bilan_autoconso_", "bilan_export_",
+            "bilan_autoconsommation_", "bilan_valeur_injection_",
+            "bilan_gain_solaire_"
+        )):
+            if isinstance(entity, FoxCatNumericSensor):
+                entity._foxcat_device_identifier = f"{c.entry.entry_id}_accounting_pv"
+                entity._foxcat_device_name = "FoxCat Energy – Photovoltaïque"
+
+        # Chaque appareil mesuré obtient son propre appareil HA.
+        elif "appareil_" in text:
+            # unique_id format: foxcat_<entry>_appareil_<machine>_<mesure>
+            raw = text
+            marker = "appareil_"
+            part = raw.split(marker, 1)[1]
+            for suffix in ("_energie_jour", "_solaire_jour", "_reseau_jour", "_cout_jour"):
+                if part.endswith(suffix):
+                    machine_id = part[:-len(suffix)]
+                    break
+            else:
+                machine_id = part
+
+            if isinstance(entity, FoxCatNumericSensor):
+                entity._foxcat_device_identifier = f"{c.entry.entry_id}_accounting_{machine_id}"
+                # Recover a readable name from the entity name.
+                ename = getattr(entity, "_attr_name", "") or machine_id.replace("_", " ").title()
+                for tail in (" énergie aujourd'hui", " solaire aujourd'hui", " réseau aujourd'hui", " coût aujourd'hui"):
+                    if ename.endswith(tail):
+                        ename = ename[:-len(tail)]
+                        break
+                entity._foxcat_device_name = f"FoxCat Energy – {ename}"
+
     async_add_entities(entities)
 
 
@@ -133,11 +180,13 @@ class FoxCatValueSensor(FoxCatEntity, SensorEntity):
 class FoxCatNumericSensor(FoxCatEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, coordinator, key: str, name: str, icon: str, device: str, getter: Callable[[dict[str, Any]], Any], unit: str | None = None, device_class=None, state_class=None):
+    def __init__(self, coordinator, key: str, name: str, icon: str, device: str, getter: Callable[[dict[str, Any]], Any], unit: str | None = None, device_class=None, state_class=None, device_name: str | None = None, device_identifier: str | None = None):
         super().__init__(coordinator, key, name, icon, device)
         self._getter = getter
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
+        self._foxcat_device_name = device_name
+        self._foxcat_device_identifier = device_identifier
         if state_class is not None:
             self._attr_state_class = state_class
         elif unit in {PERCENTAGE, "€/kWh", "€"} or unit is None:
@@ -154,3 +203,16 @@ class FoxCatNumericSensor(FoxCatEntity, SensorEntity):
             return round(float(value), 4)
         except (TypeError, ValueError, KeyError, AttributeError):
             return None
+
+    @property
+    def device_info(self):
+        if self._foxcat_device_identifier:
+            return {
+                "identifiers": {(DOMAIN, self._foxcat_device_identifier)},
+                "name": self._foxcat_device_name or self._foxcat_device_identifier,
+                "manufacturer": "FoxCat Energy",
+                "model": "Coûts & Bilan",
+                "via_device": (DOMAIN, self.coordinator.entry.entry_id),
+            }
+        return super().device_info
+
