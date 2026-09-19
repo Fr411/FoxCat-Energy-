@@ -64,8 +64,6 @@ from .const import (
     CONF_TARIFF_HP_END_2,
     CONF_TARIFF_HP_START_1,
     CONF_TARIFF_HP_START_2,
-    CONF_TARIFF_HP_PRICE,
-    CONF_TARIFF_HC_PRICE,
     CONF_TARIFF_FIXED_INJECTION_PRICE,
     CONF_TARIFF_HP_PRICE_SENSOR,
     CONF_TARIFF_HC_PRICE_SENSOR,
@@ -236,8 +234,6 @@ def _hphc_schema() -> vol.Schema:
             _optional(CONF_TARIFF_HP_PRICE_SENSOR): _entity("sensor"),
             _optional(CONF_TARIFF_HC_PRICE_SENSOR): _entity("sensor"),
             _optional(CONF_TARIFF_FIXED_INJECTION_PRICE_SENSOR): _entity("sensor"),
-            vol.Optional(CONF_TARIFF_HP_PRICE, default=0.0): _price_number(0.0),
-            vol.Optional(CONF_TARIFF_HC_PRICE, default=0.0): _price_number(0.0),
             vol.Optional(CONF_TARIFF_FIXED_INJECTION_PRICE, default=0.0): _price_number(0.0, -1.0, 2.0),
             vol.Optional(CONF_TARIFF_HP_START_1, default="07:00:00"): selector.TimeSelector(),
             vol.Optional(CONF_TARIFF_HP_END_1, default="11:00:00"): selector.TimeSelector(),
@@ -387,7 +383,7 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
         # with the live values so existing user tuning is not lost.
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is not None:
-            for key in (CONF_TARIFF_HP_PRICE, CONF_TARIFF_HC_PRICE, CONF_TARIFF_FIXED_INJECTION_PRICE):
+            for key in (CONF_TARIFF_FIXED_INJECTION_PRICE,):
                 if key not in data and key in coordinator.settings:
                     data[key] = coordinator.settings[key]
         return data

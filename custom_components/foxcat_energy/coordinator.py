@@ -103,6 +103,8 @@ from .const import (
     RRCR_CODE_TO_LEVEL,
     RRCR_LEVEL_TO_CODE,
     TARIFF_COMPENSATION,
+    NETWORK_POLICY_COMPENSATION,
+    NETWORK_POLICY_BILLED_EXPORT,
     TARIFF_DYNAMIC,
     TARIFF_TOU,
 )
@@ -114,6 +116,8 @@ from .engine.load_guard import (
 )
 from .engine.tariff import price_status, tariff_boundaries, tariff_period
 from .machines import MachineDefinition, machine_allowed, machine_definitions, schedule_boundaries
+from .energy_bus import EnergyBus
+from .inverter_core import InverterCore
 from .accounting import EnergyAccounting
 
 _LOGGER = logging.getLogger(__name__)
@@ -128,6 +132,9 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.config.update(entry.options)
         self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
         self.machines: list[MachineDefinition] = machine_definitions(self.config)
+        # FoxCat 1.5.0 : deux cœurs, communication immédiate par EnergyBus.
+        self.energy_bus = EnergyBus()
+        self.inverter_core = InverterCore()
         self.settings: dict[str, Any] = dict(DEFAULT_SETTINGS)
         self.core_state: dict[str, Any] = {
             "phase": PHASE_ACQUISITION,
@@ -171,10 +178,16 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "guard_reason": "initialisation",
             "last_engine_run": None,
             "engine_run_count": 0,
+            "decision_tick_count": 0,
+            "last_decision_at": None,
         }
         self.solar_forecast = SolarForecast()
         self._unsubs: list[Any] = []
         self._core_lock = asyncio.Lock()
+        # 1.4.8 : la réduction puissance onduleur possède son propre verrou.
+        # Un boiler, une machine ou une attente du CORE ne peut donc jamais
+        # retarder le tick physique de 30 secondes.
+        self._inverter_reduction_lock = asyncio.Lock()
         self._action_lock = asyncio.Lock()
         self._pri_task: asyncio.Task | None = None
         self._execution_task: asyncio.Task | None = None
@@ -226,7 +239,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for key in (CONF_TARIFF_HP_START_1, CONF_TARIFF_HP_END_1, CONF_TARIFF_HP_START_2, CONF_TARIFF_HP_END_2):
             if key in self.config and self.config.get(key) not in (None, ""):
                 self.settings[key] = str(self.config[key])
-        for key in (CONF_TARIFF_HP_PRICE, CONF_TARIFF_HC_PRICE, CONF_TARIFF_FIXED_INJECTION_PRICE):
+        for key in (CONF_TARIFF_FIXED_INJECTION_PRICE,):
             if key in self.config and self.config.get(key) not in (None, ""):
                 try:
                     self.settings[key] = float(self.config[key])
@@ -374,12 +387,25 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @callback
     def _on_ems_30s_tick(self, now: datetime) -> None:
-        """Horloge souveraine FoxCat : acquisition + CORE + PRI toutes les 30 s."""
+        """Cadence du EMS CORE uniquement.
+
+        Le EMS Onduleur est cadencé exclusivement par une nouvelle trame du
+        capteur réseau/réinjection configuré.
+        """
         self.hass.async_create_task(self.async_handle_house_frame())
 
     @callback
     def _on_grid_event(self, event: Event) -> None:
-        self.hass.async_create_task(self.async_handle_grid_change())
+        entity_id = str(event.data.get("entity_id", ""))
+        export_id = str(self.config.get(CONF_GRID_EXPORT_SENSOR) or "")
+        legacy_id = str(self.config.get(CONF_GRID_LEGACY_SENSOR) or "")
+
+        # La trame de réinjection est l'horloge physique du EMS Onduleur.
+        # Le legacy signé est accepté comme source de trame si configuré.
+        if entity_id and entity_id in {export_id, legacy_id}:
+            self.hass.async_create_task(self.async_handle_inverter_grid_frame(entity_id))
+        else:
+            self.hass.async_create_task(self.async_handle_grid_change())
 
     @callback
     def _on_safety_event(self, event: Event) -> None:
@@ -504,23 +530,19 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         regime = str(self.settings.get("tariff_regime", TARIFF_COMPENSATION))
         period = tariff_period(dt_util.now(), self.settings)
 
-        hp_manual = float(self.settings.get(CONF_TARIFF_HP_PRICE, 0.0))
-        hc_manual = float(self.settings.get(CONF_TARIFF_HC_PRICE, 0.0))
         fixed_injection_manual = float(self.settings.get(CONF_TARIFF_FIXED_INJECTION_PRICE, 0.0))
 
         hp_sensor_id = self.config.get(CONF_TARIFF_HP_PRICE_SENSOR)
         hc_sensor_id = self.config.get(CONF_TARIFF_HC_PRICE_SENSOR)
         fixed_injection_sensor_id = self.config.get(CONF_TARIFF_FIXED_INJECTION_PRICE_SENSOR)
-        hp_from_entity = self._optional_float_state(hp_sensor_id)
-        hc_from_entity = self._optional_float_state(hc_sensor_id)
+        hp_price = self._optional_float_state(hp_sensor_id)
+        hc_price = self._optional_float_state(hc_sensor_id)
         fixed_injection_from_entity = self._optional_float_state(fixed_injection_sensor_id)
 
-        hp_price = hp_from_entity if hp_from_entity is not None else hp_manual
-        hc_price = hc_from_entity if hc_from_entity is not None else hc_manual
         fixed_injection = fixed_injection_from_entity if fixed_injection_from_entity is not None else fixed_injection_manual
-        hp_source = hp_sensor_id if hp_from_entity is not None else "Valeur manuelle"
-        hc_source = hc_sensor_id if hc_from_entity is not None else "Valeur manuelle"
-        fixed_injection_source = fixed_injection_sensor_id if fixed_injection_from_entity is not None else "Valeur manuelle"
+        hp_source = hp_sensor_id if hp_price is not None else "Non configuré"
+        hc_source = hc_sensor_id if hc_price is not None else "Non configuré"
+        fixed_injection_source = fixed_injection_sensor_id if fixed_injection_from_entity is not None else "Valeur fixe"
 
         active_buy: float | None
         export_value: float | None
@@ -534,16 +556,11 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             model = "DYNAMIQUE"
         else:
             active_buy = hp_price if period == "HP" else hc_price
-            if regime == TARIFF_COMPENSATION:
-                export_value = None
-                status = f"COMPENSATION · {period}"
-                model = "ESTIMATION_COMPENSATION"
-            else:
-                export_value = fixed_injection
-                status = period
-                model = "BIHORAIRE"
-            if active_buy <= 0:
-                status = f"{status} · PRIX À CONFIGURER"
+            export_value = fixed_injection
+            status = period
+            model = "BIHORAIRE"
+            if active_buy is None:
+                status = f"{status} · HIÉRARCHIE SANS PRIX"
 
         snap = self.snapshot()
         import_cost_rate = (snap.import_w / 1000.0 * active_buy) if active_buy is not None else None
@@ -654,7 +671,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # editable number entities for backwards compatibility, but mirror any
         # change they make into ConfigEntry options so the dedicated tariff
         # page and the entities always survive restarts with the same value.
-        if key in {CONF_TARIFF_HP_PRICE, CONF_TARIFF_HC_PRICE, CONF_TARIFF_FIXED_INJECTION_PRICE}:
+        if key in {CONF_TARIFF_FIXED_INJECTION_PRICE}:
             options = dict(self.entry.options)
             if options.get(key) != value:
                 options[key] = value
@@ -735,6 +752,37 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.pri_state["last_reason"] = f"Échec commande manuelle PRI {level} % : code lu {code}, attendu {expected}."
         self.async_set_updated_data(self._build_data())
 
+    async def async_handle_inverter_grid_frame(self, source_entity: str = "") -> None:
+        """EMS Onduleur : exactement une décision par nouvelle trame réseau."""
+        async with self._inverter_reduction_lock:
+            snapshot = self.snapshot()
+            now = dt_util.now()
+            self._frame_id += 1
+            frame_id = self._frame_id
+            self.energy_bus.on_grid_frame(frame_id, now)
+
+            self.pri_state["last_30s_tick"] = now
+            self.pri_state["frame_id"] = frame_id
+            self.pri_state["decision_tick_count"] = int(self.pri_state.get("decision_tick_count", 0)) + 1
+            self.pri_state["frame_source"] = source_entity or "réseau"
+
+            if not snapshot.valid:
+                self.pri_state["guard_reason"] = "snapshot_invalide"
+                self.pri_state["last_reason"] = "Trame réseau reçue : snapshot énergétique invalide."
+                self.energy_bus.publish_inverter_state(
+                    status="SNAPSHOT_INVALIDE", frame_id=frame_id, frame_at=now
+                )
+                self.async_set_updated_data(self._build_data(snapshot))
+                return
+
+            # N+1 : valider l'ordre précédent puis calculer obligatoirement la
+            # nouvelle décision sur CETTE trame.
+            await self._validate_pending_pri_on_frame(snapshot)
+            await self._run_pri_frame(snapshot)
+            self.pri_state["last_decision_at"] = now
+            self.async_set_updated_data(self._build_data(snapshot))
+
+
     async def async_handle_house_frame(self) -> None:
         """Traite uniquement une trame énergétique complète et valide.
 
@@ -783,10 +831,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._valid_frames_after_reset = 0
                 self.reset_core("Capteurs stabilisés après reset : reprise du CORE.")
 
-            # Seules les vraies trames valides incrémentent N.
-            self._frame_id += 1
-            self.pri_state["frame_id"] = self._frame_id
-            self.pri_state["last_30s_tick"] = dt_util.now()
+            # Le frame_id de réduction onduleur est géré par sa boucle dédiée.
             self.core_state["last_frame"] = snapshot.timestamp
 
             # Comptabilité énergétique : observe la trame, sans influencer le CORE.
@@ -799,15 +844,9 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.accounting.process(snapshot, self.prices(), accounting_appliances):
                 self.hass.async_create_task(self._async_save())
 
-            # Une commande faite sur N est vérifiée uniquement sur une vraie N+1.
-            await self._validate_pending_pri_on_frame(snapshot)
-
             if bool(self.settings.get("regulation_active")):
-                # 1.4.7 : boucle physique autonome, exécutée à chaque vraie trame.
-                await self._run_pri_frame(snapshot)
-
-                # CORE EMS séparé : boiler, machines et délestage ne peuvent
-                # plus empêcher l'évaluation de la réduction onduleur.
+                # CORE EMS uniquement. La réduction puissance onduleur possède
+                # depuis 1.4.8 sa propre boucle 30 s indépendante.
                 await self._evaluate_high_load(snapshot)
                 await self._core_process_frame(snapshot)
             else:
@@ -913,6 +952,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if (
             intent.action in {BOILER_HEAT_45, BOILER_BOOST_65}
+            and str(self.settings.get("network_policy", NETWORK_POLICY_COMPENSATION)) != NETWORK_POLICY_COMPENSATION
             and snapshot.machine_active
             and not protected_cycle_boiler_allowed_stable(snapshot, t0, self.settings)
         ):
@@ -922,6 +962,21 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 f"Cycle machine protégé : boiler en attente, surplus disponible {available:.0f} W < {required:.0f} W requis."
             )
             return
+
+        # Politique Compensation : le réseau est tampon. Les sécurités et
+        # fallback thermiques restent inchangés, mais une contrainte purement
+        # énergétique HP/import ne force pas l'arrêt du boiler.
+        if (
+            str(self.settings.get("network_policy", NETWORK_POLICY_COMPENSATION)) == NETWORK_POLICY_COMPENSATION
+            and intent.action == BOILER_STOP
+            and snapshot.boiler_on
+            and ("achat réseau" in intent.reason.lower() or "hp" in intent.reason.lower())
+        ):
+            intent = type(intent)(
+                BOILER_NONE,
+                "Compensation : contrainte énergétique ignorée, boiler conservé; sécurités/fallback inchangés.",
+                "COMPENSATION",
+            )
 
         self.core_state["boiler_demand"] = intent.action
         self.core_state["boiler_origin"] = intent.origin
@@ -974,6 +1029,18 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         snap = self.snapshot()
         power = max(snap.boiler_power_w, float(self.settings["boiler_power_w"]))
         reference = snap.grid_net_w
+
+        # Communication immédiate vers EMS Onduleur. Le second cœur n'exécute
+        # sa réponse physique qu'à la prochaine trame réseau.
+        delta_bus = -power if action == BOILER_STOP else float(self.settings["boiler_power_w"])
+        self.energy_bus.publish_ems_intent(
+            source="boiler",
+            action=action,
+            delta_w=delta_bus,
+            now=dt_util.now(),
+            origin=origin,
+            reason=reason,
+        )
         if action == BOILER_STOP:
             expected = reference + power
             pending = "BOILER_OFF_STRATEGY"
@@ -1144,6 +1211,24 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _machine_schedule_boundaries(self) -> set[tuple[int, int]]:
         return schedule_boundaries(self.machines)
 
+    def _tariff_start_favorable(self) -> bool:
+        """Hiérarchie de démarrage automatique, indépendante des prix manuels."""
+        prices = self.prices()
+        regime = str(self.settings.get("tariff_regime", TARIFF_TOU))
+        if regime == TARIFF_DYNAMIC:
+            current = prices.get("current")
+            nxt = prices.get("next")
+            avg = prices.get("avg_today")
+            if not isinstance(current, (int, float)):
+                return False
+            if isinstance(nxt, (int, float)) and current > nxt:
+                return False
+            if isinstance(avg, (int, float)) and current > avg:
+                return False
+            return True
+        # HP/HC : HC favorable, HP défavorable.
+        return str(prices.get("period")) == "HC"
+
     def machine_states(self) -> list[dict[str, Any]]:
         now = dt_util.now()
         result: list[dict[str, Any]] = []
@@ -1159,6 +1244,8 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "automatic": bool(self.settings.get(machine.setting_key, machine.automatic_default)),
                 "sheddable": machine.sheddable,
                 "window_open": machine_allowed(machine, now),
+                "tariff_period": tariff_period(now, self.settings),
+                "tariff_start_favorable": self._tariff_start_favorable(),
             })
         return result
 
@@ -1189,7 +1276,10 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Pendant un délestage, seules les machines explicitement délestables
             # et sans cycle protégé actif sont coupées.
             high_load_block = bool(self.load_shed_state.get("active")) and machine.sheddable and not cycle_active
-            should_on = cycle_active or (management and allowed and not high_load_block)
+            tariff_ok = self._tariff_start_favorable()
+            # Un cycle utilisateur/protégé reste prioritaire. Seul un NOUVEAU
+            # démarrage automatique est bloqué en période défavorable.
+            should_on = cycle_active or (management and allowed and tariff_ok and not high_load_block)
             service = "turn_on" if should_on else "turn_off"
             try:
                 await self.hass.services.async_call("switch", service, {"entity_id": socket}, blocking=False)
@@ -1436,51 +1526,64 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.pri_state["pending_pv_before"]=None
 
     async def _run_pri_frame(self, snapshot: EnergySnapshot) -> None:
-        """Réduction puissance onduleur 1.4.7 : boucle autonome à chaque trame 30 s."""
+        """EMS Onduleur 1.5.0 : une décision par trame réseau."""
         self.pri_state["last_engine_run"] = dt_util.now()
         self.pri_state["engine_run_count"] = int(self.pri_state.get("engine_run_count", 0)) + 1
+
         if not snapshot.valid:
-            self.pri_state["last_reason"] = "Réduction puissance onduleur gelée : snapshot énergétique incomplet."
+            self.pri_state["last_reason"] = "EMS Onduleur : snapshot énergétique incomplet."
             return
         if not self._pri_guard():
             self.pri_state["last_reason"] = (
-                "Réduction puissance onduleur non exécutée : "
+                "EMS Onduleur non exécuté : "
                 f"{self.pri_state.get('guard_reason', 'raison inconnue')}."
-            )
-            return
-        if self.pri_state.get("pending_level") is not None:
-            self.pri_state["last_reason"] = (
-                f"Réduction puissance onduleur en attente de validation N+1 (commande "
-                f"{self.pri_state.get('pending_level')} %)."
             )
             return
 
         current = self._rrcr_level()
         if current < 0:
-            self.pri_state.update({"ack_rrcr":"FAILED","last_reason":"Code RRCR inconnu."})
+            self.pri_state.update({"ack_rrcr":"FAILED","last_reason":"EMS Onduleur : code RRCR inconnu."})
             return
 
         self._update_pri_pv_comparator(snapshot, current)
-        mode = str(self.settings.get("mode"))
-        if mode == MODE_DYNAMIC:
-            decision = decide_dynamic(
-                snapshot, current, self.settings,
-                self.prices().get("injection"), snapshot.boiler_on
-            )
-        else:
-            decision = decide_zero(snapshot, current, self.settings)
+        policy = str(self.settings.get("network_policy", NETWORK_POLICY_COMPENSATION))
+        decision = self.inverter_core.decide(
+            snapshot,
+            current,
+            self.settings,
+            policy,
+            self.energy_bus.view(),
+        )
 
-        target = int(decision.target_level)
-        if target > current:
-            target = min(current + 10, 100)
-        elif target < current:
-            target = max(current - 10, 0)
-
+        target = max(0, min(100, int(decision.target_level)))
         direction = "remontee" if target > current else "descente" if target < current else "maintien"
+
         self.pri_state.update({
-            "current_level": current, "target_level": target,
-            "direction": direction, "last_reason": decision.reason
+            "current_level": current,
+            "target_level": target,
+            "direction": direction,
+            "last_reason": decision.reason,
+            "pv_limit_w": decision.pv_limit_w,
+            "pv_limit_ratio_pct": decision.pv_ratio * 100.0,
+            "pv_at_limit": decision.pv_at_limit,
+            "more_solar_possible": decision.more_solar_possible,
+            "max_solar_reached": decision.max_solar_reached,
         })
+        self.energy_bus.publish_inverter_state(
+            status=decision.action,
+            frame_id=self._frame_id,
+            frame_at=dt_util.now(),
+            current_level=current,
+            target_level=target,
+            pv_w=snapshot.pv_w,
+            pv_limit_w=decision.pv_limit_w,
+            pv_ratio_pct=decision.pv_ratio * 100.0,
+            pv_at_limit=decision.pv_at_limit,
+            more_solar_possible=decision.more_solar_possible,
+            max_solar_reached=decision.max_solar_reached,
+            network_policy=policy,
+            reason=decision.reason,
+        )
 
         if target == current:
             self.pri_state["ack_grid"] = self._classify_pri_grid(snapshot)
@@ -1491,16 +1594,20 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not await self._wait_rrcr_code(target_code):
             self.pri_state["ack_rrcr"] = "FAILED"
             self.pri_state["last_reason"] = (
-                f"Réduction puissance onduleur 1.4.6 : RRCR {target}% non confirmé, retour {current}%."
+                f"EMS Onduleur : RRCR {target}% non confirmé, retour {current}%."
             )
             await self._apply_rrcr_level(current)
             return
 
         self.pri_state.update({
-            "ack_rrcr":"PENDING","ack_inverter":"PENDING","ack_grid":"PENDING",
-            "pending_level":target,"pending_frame_id":self._frame_id,
-            "pending_pv_before":snapshot.pv_w
+            "ack_rrcr":"PENDING",
+            "ack_inverter":"PENDING",
+            "ack_grid":"PENDING",
+            "pending_level":target,
+            "pending_frame_id":self._frame_id,
+            "pending_pv_before":snapshot.pv_w,
         })
+
 
     async def async_reset_cycle(self) -> None:
         self.reset_core("Cycle EMS réinitialisé manuellement.")
@@ -1652,6 +1759,7 @@ Cherche une fenêtre solaire exploitable avant la prochaine échéance énergét
             "settings": dict(self.settings),
             "core": dict(self.core_state),
             "pri": dict(self.pri_state),
+            "energy_bus": self.energy_bus.view(),
             "solar": self.solar_forecast,
             "prices": self.prices(),
             "accounting": self.accounting.view(),

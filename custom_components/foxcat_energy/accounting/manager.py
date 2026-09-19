@@ -62,7 +62,7 @@ class EnergyAccounting:
                        solar: float, grid: float, cost: float) -> None:
         apps=bucket.setdefault("appliances",{})
         a=apps.setdefault(aid,{"name":name,"energy_kwh":0.0,"solar_kwh":0.0,
-                               "grid_kwh":0.0,"cost_eur":0.0})
+                               "grid_kwh":0.0,"cost_eur":0.0,"hp_kwh":0.0,"hc_kwh":0.0})
         a["name"]=name
         a["energy_kwh"]+=max(energy,0.0)
         a["solar_kwh"]+=max(solar,0.0)
@@ -96,6 +96,7 @@ class EnergyAccounting:
         imported=max(snapshot.import_w,0.0)/1000*hours
         self_used=max(min(snapshot.pv_w,snapshot.house_w),0.0)/1000*hours
 
+        period = str(prices.get("period", "HC"))
         buy=prices.get("active_buy")
         sell=prices.get("export_value")
         buy=float(buy) if isinstance(buy,(int,float)) else None
@@ -121,7 +122,15 @@ class EnergyAccounting:
             grid=e-solar
             cost=grid*buy if buy is not None else 0.0
             for b in (self.today,self.month,self.year,self.lifetime):
-                self._add_appliance(b,str(app["id"]),str(app["name"]),e,solar,grid,cost)
+                aid=str(app["id"])
+                name=str(app["name"])
+                self._add_appliance(b,aid,name,e,solar,grid,cost)
+                rec=b.setdefault("appliances",{}).setdefault(
+                    aid, {"name":name,"energy_kwh":0.0,"solar_kwh":0.0,
+                          "grid_kwh":0.0,"cost_eur":0.0,"hp_kwh":0.0,"hc_kwh":0.0}
+                )
+                key="hp_kwh" if period == "HP" else "hc_kwh"
+                rec[key]=float(rec.get(key,0.0))+max(e,0.0)
 
         if self.last_save_ts is None or (now-self.last_save_ts).total_seconds() >= 300:
             self.last_save_ts=now

@@ -97,6 +97,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         FoxCatValueSensor(c, "derniere_trame", "Dernière trame énergétique", "mdi:clock-check-outline", "ems", lambda d: _iso(d["core"].get("last_frame"))),
         FoxCatValueSensor(c, "derniere_action", "Dernière action EMS", "mdi:clock-outline", "ems", lambda d: _iso(d["core"].get("last_action"))),
     ]
+    entities.extend([
+        FoxCatValueSensor(c, "periode_tarifaire", "Période tarifaire", "mdi:clock-outline", "pricing", lambda d: d["prices"].get("period", "—")),
+        FoxCatValueSensor(c, "politique_reseau_active", "Politique réseau active", "mdi:transmission-tower", "pricing", lambda d: d["settings"].get("network_policy", "Compensation")),
+        FoxCatValueSensor(c, "ems_onduleur_etat", "EMS Onduleur • État", "mdi:solar-power-variant", "pri", lambda d: d["energy_bus"]["inverter"].get("status", "—")),
+        FoxCatNumericSensor(c, "ems_onduleur_plafond_pv", "EMS Onduleur • Plafond PV", "mdi:solar-power", "pri", lambda d: d["energy_bus"]["inverter"].get("pv_limit_w", 0.0), "W"),
+        FoxCatNumericSensor(c, "ems_onduleur_utilisation_plafond", "EMS Onduleur • Utilisation plafond", "mdi:gauge", "pri", lambda d: d["energy_bus"]["inverter"].get("pv_ratio_pct", 0.0), PERCENTAGE),
+        FoxCatValueSensor(c, "ems_onduleur_potentiel", "EMS Onduleur • Potentiel solaire", "mdi:weather-sunny-alert", "pri", lambda d: "PLUS POSSIBLE" if d["energy_bus"]["inverter"].get("more_solar_possible") else ("MAX SOLAIRE ATTEINT" if d["energy_bus"]["inverter"].get("max_solar_reached") else "STABLE")),
+    ])
+
     # Un jeu de capteurs est créé automatiquement pour chaque appareil FoxCat mesuré.
     appliance_defs = [("boiler", "Chauffe-eau")] + [(m.machine_id, m.name) for m in c.machines if m.power_sensor]
     for appliance_id, appliance_name in appliance_defs:
@@ -106,6 +115,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             FoxCatNumericSensor(c, f"appareil_{safe}_solaire_jour", f"🔌 {appliance_name} • Part solaire aujourd’hui", "mdi:white-balance-sunny", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("solar_kwh",0.0), UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
             FoxCatNumericSensor(c, f"appareil_{safe}_reseau_jour", f"🔌 {appliance_name} • Part réseau aujourd’hui", "mdi:transmission-tower-import", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("grid_kwh",0.0), UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
             FoxCatNumericSensor(c, f"appareil_{safe}_cout_jour", f"🔌 {appliance_name} • Coût aujourd’hui", "mdi:cash", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("cost_eur",0.0), "€"),
+            FoxCatNumericSensor(c, f"appareil_{safe}_hp_jour", f"🔌 {appliance_name} • Consommation HP aujourd’hui", "mdi:weather-sunny", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("hp_kwh",0.0), UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+            FoxCatNumericSensor(c, f"appareil_{safe}_hc_jour", f"🔌 {appliance_name} • Consommation HC aujourd’hui", "mdi:weather-night", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("hc_kwh",0.0), UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+            FoxCatValueSensor(c, f"appareil_{safe}_tarif_actuel", f"🔌 {appliance_name} • Tarif actuel", "mdi:clock-check-outline", "accounting", lambda d: d["prices"].get("period","—")),
         ])
     # FoxCat 1.4.2 — un seul appareil Home Assistant pour toute la comptabilité.
     # Les sections sont obtenues par une nomenclature stable des entités.

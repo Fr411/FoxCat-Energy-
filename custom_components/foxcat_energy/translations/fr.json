@@ -103,8 +103,6 @@
           "tariff_hp_price_sensor": "Entité prix heures pleines (HP)",
           "tariff_hc_price_sensor": "Entité prix heures creuses (HC)",
           "tariff_fixed_injection_price_sensor": "Entité prix fixe de réinjection",
-          "tariff_hp_price_eur_kwh": "Prix achat heures pleines (HP) – €/kWh TVAC",
-          "tariff_hc_price_eur_kwh": "Prix achat heures creuses (HC) – €/kWh TVAC",
           "tariff_fixed_injection_eur_kwh": "Prix fixe de réinjection – €/kWh",
           "tariff_hp_start_1": "Début heures pleines – plage 1",
           "tariff_hp_end_1": "Fin heures pleines – plage 1",

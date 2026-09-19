@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, MODE_MANUAL, MODES, TARIFF_REGIMES
+from .const import DOMAIN, MODE_MANUAL, MODES, TARIFF_REGIMES, NETWORK_POLICIES, NETWORK_POLICY_COMPENSATION
 from .coordinator import FoxCatEnergyCoordinator
 from .entity import FoxCatEntity
 
@@ -16,6 +16,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         [
             FoxCatModeSelect(coordinator),
             FoxCatTariffRegimeSelect(coordinator),
+            FoxCatNetworkPolicySelect(coordinator),
             FoxCatPriManualLevelSelect(coordinator),
         ]
     )
@@ -53,6 +54,23 @@ class FoxCatTariffRegimeSelect(FoxCatEntity, SelectEntity):
         if option not in TARIFF_REGIMES:
             return
         await self.coordinator.async_set_setting("tariff_regime", option)
+
+
+class FoxCatNetworkPolicySelect(FoxCatEntity, SelectEntity):
+    _attr_options = NETWORK_POLICIES
+
+    def __init__(self, coordinator: FoxCatEnergyCoordinator) -> None:
+        super().__init__(coordinator, "politique_reseau", "Politique réseau", "mdi:transmission-tower", "pricing")
+
+    @property
+    def current_option(self) -> str | None:
+        value = str(self.coordinator.settings.get("network_policy", NETWORK_POLICY_COMPENSATION))
+        return value if value in NETWORK_POLICIES else NETWORK_POLICY_COMPENSATION
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in NETWORK_POLICIES:
+            return
+        await self.coordinator.async_set_setting("network_policy", option)
 
 
 class FoxCatPriManualLevelSelect(FoxCatEntity, SelectEntity):

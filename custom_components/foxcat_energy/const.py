@@ -90,7 +90,11 @@ MODES = [MODE_ECO, MODE_ZERO, MODE_ECS, MODE_DYNAMIC, MODE_MANUAL]
 TARIFF_DYNAMIC = "Dynamique"
 TARIFF_COMPENSATION = "Compensation"
 TARIFF_TOU = "Bi-horaire HP/HC"
-TARIFF_REGIMES = [TARIFF_DYNAMIC, TARIFF_COMPENSATION, TARIFF_TOU]
+TARIFF_REGIMES = [TARIFF_TOU, TARIFF_DYNAMIC]
+
+NETWORK_POLICY_COMPENSATION = "Compensation"
+NETWORK_POLICY_BILLED_EXPORT = "Injection facturée"
+NETWORK_POLICIES = [NETWORK_POLICY_COMPENSATION, NETWORK_POLICY_BILLED_EXPORT]
 MODE_ALIASES = {
     "Economie énergie": MODE_ECO,
     "Économie énergie": MODE_ECO,
@@ -151,9 +155,8 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "solar_advisor_enabled": True,
     "dynamic_negative_price_charge_enabled": True,
     "high_load_shed_enabled": False,
-    "tariff_regime": TARIFF_COMPENSATION,
-    "tariff_hp_price_eur_kwh": 0.0,
-    "tariff_hc_price_eur_kwh": 0.0,
+    "tariff_regime": TARIFF_TOU,
+    "network_policy": NETWORK_POLICY_COMPENSATION,
     "tariff_fixed_injection_eur_kwh": 0.0,
     "tariff_hp_start_1": "07:00:00",
     "tariff_hp_end_1": "11:00:00",
@@ -179,6 +182,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "pri_import_optimal_w": 100.0,
     "pri_export_acceptable_w": 150.0,
     "pri_import_acceptable_w": 200.0,
+    "network_billed_export_max_w": 50.0,
+    "network_billed_import_target_w": 100.0,
+    "network_billed_import_max_w": 250.0,
+    "pri_ceiling_ratio": 0.92,
     "pri_score_margin": 25.0,
     "pri_inverter_ack_tolerance_w": 180.0,
     "pri_up_ack_delta_w": 100.0,
@@ -222,6 +229,9 @@ NUMBER_DEFINITIONS = {
     "inverter_power_w": ("Puissance nominale onduleur", 500, 30000, 100, "W", "mdi:solar-power"),
     "pri_step_w": ("Pas de puissance PRI", 100, 1000, 100, "W", "mdi:stairs"),
     "pri_pv_compare_tolerance_w": ("Tolérance comparateur PRI/PV", 50, 500, 10, "W", "mdi:compare"),
+    "network_billed_export_max_w": ("Injection maximale tolérée", 0, 500, 10, "W", "mdi:transmission-tower-export"),
+    "network_billed_import_target_w": ("Import cible", 0, 500, 10, "W", "mdi:transmission-tower-import"),
+    "network_billed_import_max_w": ("Import maximal avant libération PV", 50, 1000, 10, "W", "mdi:transmission-tower-import"),
     "pri_probe_margin_w": ("Marge sondage solaire boiler", 0, 800, 50, "W", "mdi:solar-power"),
     "pri_weight_import": ("Poids import PRI", 0.1, 10, 0.1, None, "mdi:scale-balance"),
     "pri_weight_export": ("Poids réinjection PRI", 0.1, 10, 0.1, None, "mdi:scale-balance"),
@@ -252,8 +262,6 @@ NUMBER_DEFINITIONS = {
     "dynamic_price_significant_delta": ("Écart de prix significatif", 0, 1, 0.001, "€/kWh", "mdi:cash-sync"),
     "dynamic_injection_lucrative_threshold": ("Seuil injection rémunératrice", -1, 1, 0.0001, "€/kWh", "mdi:cash-plus"),
     "dynamic_grid_charge_threshold_eur_kwh": ("Seuil charge réseau prix négatif", -1, 0, 0.001, "€/kWh", "mdi:transmission-tower-import"),
-    "tariff_hp_price_eur_kwh": ("Prix achat heures pleines", 0, 2, 0.001, "€/kWh", "mdi:cash-clock"),
-    "tariff_hc_price_eur_kwh": ("Prix achat heures creuses", 0, 2, 0.001, "€/kWh", "mdi:cash-clock"),
     "tariff_fixed_injection_eur_kwh": ("Prix fixe de réinjection", -1, 2, 0.001, "€/kWh", "mdi:cash-plus"),
     "pri_boiler_settle_s": ("Temporisation PRI après action boiler", 0, 180, 5, "s", "mdi:timer-sync-outline"),
     "high_load_trigger_w": ("Seuil haute consommation", 1000, 20000, 100, "W", "mdi:flash-alert"),
