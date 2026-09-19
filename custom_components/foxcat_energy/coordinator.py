@@ -168,6 +168,9 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "solar_potential_min_w": 0.0,
             "pv_limit_w": 4000.0,
             "pv_limit_error_w": 0.0,
+            "guard_reason": "initialisation",
+            "last_engine_run": None,
+            "engine_run_count": 0,
         }
         self.solar_forecast = SolarForecast()
         self._unsubs: list[Any] = []
@@ -800,12 +803,16 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._validate_pending_pri_on_frame(snapshot)
 
             if bool(self.settings.get("regulation_active")):
+                # 1.4.7 : boucle physique autonome, exécutée à chaque vraie trame.
+                await self._run_pri_frame(snapshot)
+
+                # CORE EMS séparé : boiler, machines et délestage ne peuvent
+                # plus empêcher l'évaluation de la réduction onduleur.
                 await self._evaluate_high_load(snapshot)
                 await self._core_process_frame(snapshot)
-                if not self.load_shed_state["active"]:
-                    await self._run_pri_frame(snapshot)
             else:
                 self.core_state["last_reason"] = "Régulation inactive : télémétrie seulement."
+                self.pri_state["guard_reason"] = "regulation_inactive"
 
             self.async_set_updated_data(self._build_data(snapshot))
 
@@ -1328,24 +1335,15 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return
 
     def _pri_guard(self) -> bool:
-        """Autorise le PRI et expose la raison exacte d'un éventuel blocage."""
+        """Garde minimale de la réduction puissance onduleur."""
         if not bool(self.settings.get("regulation_active")):
             self.pri_state["guard_reason"] = "regulation_inactive"
             return False
         if not bool(self.settings.get("pri_enabled")):
-            self.pri_state["guard_reason"] = "pri_disabled"
+            self.pri_state["guard_reason"] = "reduction_onduleur_desactivee"
             return False
         if str(self.settings.get("mode")) not in {MODE_ECO, MODE_ZERO, MODE_DYNAMIC}:
             self.pri_state["guard_reason"] = f"mode_{self.settings.get('mode')}"
-            return False
-        if not self._dynamic_tariff_ok():
-            self.pri_state["guard_reason"] = "dynamic_tariff_not_ready"
-            return False
-        if not self._pri_settle_ok():
-            self.pri_state["guard_reason"] = "boiler_settle"
-            return False
-        if self.core_state.get("phase") == PHASE_WAIT_ACK:
-            self.pri_state["guard_reason"] = "core_wait_boiler_ack"
             return False
         self.pri_state["guard_reason"] = "OK"
         return True
@@ -1438,15 +1436,21 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.pri_state["pending_pv_before"]=None
 
     async def _run_pri_frame(self, snapshot: EnergySnapshot) -> None:
-        """Réduction puissance onduleur 1.4.6 : réinjection maître + contrôle PV/plafond, ±10 % par trame 30 s."""
+        """Réduction puissance onduleur 1.4.7 : boucle autonome à chaque trame 30 s."""
+        self.pri_state["last_engine_run"] = dt_util.now()
+        self.pri_state["engine_run_count"] = int(self.pri_state.get("engine_run_count", 0)) + 1
         if not snapshot.valid:
-            self.pri_state["last_reason"] = "PRI gelé : snapshot énergétique incomplet."
+            self.pri_state["last_reason"] = "Réduction puissance onduleur gelée : snapshot énergétique incomplet."
             return
         if not self._pri_guard():
+            self.pri_state["last_reason"] = (
+                "Réduction puissance onduleur non exécutée : "
+                f"{self.pri_state.get('guard_reason', 'raison inconnue')}."
+            )
             return
         if self.pri_state.get("pending_level") is not None:
             self.pri_state["last_reason"] = (
-                f"PRI en attente de validation N+1 (commande "
+                f"Réduction puissance onduleur en attente de validation N+1 (commande "
                 f"{self.pri_state.get('pending_level')} %)."
             )
             return
