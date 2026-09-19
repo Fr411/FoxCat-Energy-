@@ -59,7 +59,7 @@ class FoxCatPriManualLevelSelect(FoxCatEntity, SelectEntity):
     _attr_options = [f"{level} %" for level in range(0, 101, 10)]
 
     def __init__(self, coordinator: FoxCatEnergyCoordinator) -> None:
-        super().__init__(coordinator, "pri_niveau_manuel", "Niveau PRI manuel", "mdi:tune-vertical", "pri")
+        super().__init__(coordinator, "pri_niveau_manuel", "Niveau réduction puissance onduleur manuel", "mdi:tune-vertical", "pri")
 
     @property
     def current_option(self) -> str | None:

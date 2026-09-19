@@ -1438,7 +1438,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.pri_state["pending_pv_before"]=None
 
     async def _run_pri_frame(self, snapshot: EnergySnapshot) -> None:
-        """PRI FoxCat 1.4.5 : compteur réseau maître, ±10 % maximum par tick de 30 s."""
+        """Réduction puissance onduleur 1.4.6 : réinjection maître + contrôle PV/plafond, ±10 % par trame 30 s."""
         if not snapshot.valid:
             self.pri_state["last_reason"] = "PRI gelé : snapshot énergétique incomplet."
             return
@@ -1487,7 +1487,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not await self._wait_rrcr_code(target_code):
             self.pri_state["ack_rrcr"] = "FAILED"
             self.pri_state["last_reason"] = (
-                f"PRI 1.4.5 : RRCR {target}% non confirmé, retour {current}%."
+                f"Réduction puissance onduleur 1.4.6 : RRCR {target}% non confirmé, retour {current}%."
             )
             await self._apply_rrcr_level(current)
             return
