@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 DOMAIN = "foxcat_energy"
-VERSION = "1.5.5"
+VERSION = "1.5.7"
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
 
 # Configuration keys
@@ -149,7 +149,12 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "mode": MODE_ECO,
     "boiler_enabled": True,
     "boiler_allow_hc": True,
+    "boiler_user_hold": False,
     "pri_enabled": True,
+    "hardware_inverter_brand": "SolarEdge",
+    "hardware_inverter_model": "SE4K",
+    "hardware_meter_brand": "Smappee",
+    "hardware_meter_model": "Infinity",
     "agressivite_ecs": False,
     "washer_enabled": True,
     "dryer_enabled": True,
@@ -282,7 +287,8 @@ SWITCH_DEFINITIONS = {
     "regulation_active": ("Régulation FoxCat active", "mdi:power"),
     "boiler_enabled": ("Boiler géré par FoxCat", "mdi:water-boiler"),
     "boiler_allow_hc": ("Boiler autorisé en heures creuses", "mdi:clock-check-outline"),
-    "pri_enabled": ("Réduction de puissance onduleur", "mdi:solar-power-variant"),
+    "boiler_user_hold": ("Boiler • Marche utilisateur maintenue", "mdi:hand-back-right-outline"),
+    "pri_enabled": ("PRI souverain — toujours actif", "mdi:solar-power-variant"),
     "agressivite_ecs": ("Agressivité ECS solaire", "mdi:water-boiler-auto"),
     "washer_enabled": ("Gestion lave-linge", "mdi:washing-machine"),
     "dryer_enabled": ("Gestion sèche-linge", "mdi:tumble-dryer"),
