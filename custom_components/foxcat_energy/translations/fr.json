@@ -8,14 +8,16 @@
     "step": {
       "user": {
         "title": "FoxCat Energy – Mesures principales",
-        "description": "Configure les quatre mesures de référence. Contrat réseau : export positif, import positif, balance = export - import.",
+        "description": "Configure les mesures de référence et l’horloge réseau. Le métronome est synchronisé sur le capteur Smappee choisi; le capteur de secours reprend automatiquement si le principal devient muet.",
         "data": {
           "installation_name": "Nom de l'installation",
           "pv_sensor": "Production photovoltaïque",
           "house_sensor": "Consommation réelle maison",
           "grid_export_sensor": "Réinjection réseau (positive)",
           "grid_import_sensor": "Prélèvement réseau (positif)",
-          "grid_legacy_sensor": "Ancien flux réseau signé (compatibilité uniquement)"
+          "grid_legacy_sensor": "Ancien flux réseau signé (compatibilité uniquement)",
+          "metronome_sensor": "Capteur métronome réseau (Smappee recommandé)",
+          "metronome_fallback_sensor": "Capteur de secours du métronome"
         }
       },
       "boiler": {
@@ -129,7 +131,18 @@
         }
       },
       "core": {
-        "title": "Mesures principales"
+        "title": "Mesures principales",
+        "description": "Choisis les mesures principales ainsi que le capteur qui cadence le métronome interne. Le capteur de secours est utilisé automatiquement si le principal devient muet.",
+        "data": {
+          "installation_name": "Nom de l'installation",
+          "pv_sensor": "Production photovoltaïque",
+          "house_sensor": "Consommation réelle maison",
+          "grid_export_sensor": "Réinjection réseau (positive)",
+          "grid_import_sensor": "Prélèvement réseau (positif)",
+          "grid_legacy_sensor": "Ancien flux réseau signé (compatibilité uniquement)",
+          "metronome_sensor": "Capteur métronome réseau (Smappee recommandé)",
+          "metronome_fallback_sensor": "Capteur de secours du métronome"
+        }
       },
       "boiler": {
         "title": "Boiler"

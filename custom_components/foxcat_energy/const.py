@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 DOMAIN = "foxcat_energy"
-VERSION = "1.5.2"
+VERSION = "1.5.4"
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
 
 # Configuration keys
@@ -11,6 +11,8 @@ CONF_HOUSE_SENSOR = "house_sensor"
 CONF_GRID_EXPORT_SENSOR = "grid_export_sensor"
 CONF_GRID_IMPORT_SENSOR = "grid_import_sensor"
 CONF_GRID_LEGACY_SENSOR = "grid_legacy_sensor"
+CONF_METRONOME_SENSOR = "metronome_sensor"
+CONF_METRONOME_FALLBACK_SENSOR = "metronome_fallback_sensor"
 CONF_BOILER_CLIMATE = "boiler_climate"
 CONF_BOILER_TEMP_SENSOR = "boiler_temp_sensor"
 CONF_BOILER_POWER_SENSOR = "boiler_power_sensor"
@@ -171,6 +173,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "ack_tolerance_w": 400.0,
     "stability_tolerance_w": 500.0,
     "watchdog_timeout_s": 120.0,
+    "metronome_period_s": 30.0,
+    "metronome_primary_timeout_s": 45.0,
+    "metronome_fallback_timeout_s": 90.0,
     "inverter_power_w": 4000.0,
     "pri_step_percent": 10.0,
     "pri_pv_compare_tolerance_w": 200.0,
@@ -226,6 +231,9 @@ NUMBER_DEFINITIONS = {
     "ack_tolerance_w": ("Tolérance ACK", 50, 3000, 50, "W", "mdi:check-decagram-outline"),
     "stability_tolerance_w": ("Tolérance stabilité T0/T1", 50, 3000, 50, "W", "mdi:chart-bell-curve-cumulative"),
     "watchdog_timeout_s": ("Délai watchdog trame", 30, 600, 10, "s", "mdi:timer-alert-outline"),
+    "metronome_period_s": ("Période métronome réseau", 10, 120, 5, "s", "mdi:metronome"),
+    "metronome_primary_timeout_s": ("Délai perte métronome principal", 15, 180, 5, "s", "mdi:timer-alert-outline"),
+    "metronome_fallback_timeout_s": ("Délai perte capteur de secours", 30, 300, 5, "s", "mdi:timer-off-outline"),
     "inverter_power_w": ("Puissance nominale onduleur", 500, 30000, 100, "W", "mdi:solar-power"),
     "pri_step_w": ("Pas de puissance PRI", 100, 1000, 100, "W", "mdi:stairs"),
     "pri_pv_compare_tolerance_w": ("Tolérance comparateur PRI/PV", 50, 500, 10, "W", "mdi:compare"),
