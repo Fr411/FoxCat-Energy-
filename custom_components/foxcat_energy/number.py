@@ -11,6 +11,8 @@ from .entity import FoxCatEntity
 
 
 def _device_for(key: str) -> str:
+    if key.startswith("metronome"):
+        return "metronome"
     if key.startswith("boiler") or key in {"coverage_solar_min_percent", "import_boiler_max_w", "surplus_pv_min_agressivite_w", "autoconsommation_cible_percent", "autoconsommation_min_percent"}:
         return "boiler"
     if key.startswith("pri") or key == "inverter_power_w":

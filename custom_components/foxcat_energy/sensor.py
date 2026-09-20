@@ -9,14 +9,18 @@ from homeassistant.const import PERCENTAGE, UnitOfPower, UnitOfTemperature, Unit
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_GRID_SIGNED_SENSOR, CONF_PV_SENSOR
 from .coordinator import FoxCatEnergyCoordinator
 from .entity import FoxCatEntity
+from .registry import registry_diagnostics
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     c: FoxCatEnergyCoordinator = hass.data[DOMAIN][entry.entry_id]
     entities: list[SensorEntity] = [
+        FoxCatValueSensor(c, "modele_sources", "Modèle des sources énergétiques", "mdi:source-branch", "sources", lambda d: "2 SOURCES SIGNÉES" if c.config.get(CONF_GRID_SIGNED_SENSOR) else "COMPATIBILITÉ LEGACY"),
+        FoxCatValueSensor(c, "source_reseau", "Source puissance réseau active", "mdi:transmission-tower", "sources", lambda d: (d.get("metronome", {}).get("fallback_entity") if d.get("metronome", {}).get("source") == "SECOURS" else d.get("metronome", {}).get("primary_entity")) or c.config.get(CONF_GRID_SIGNED_SENSOR) or "Legacy"),
+        FoxCatValueSensor(c, "source_pv", "Source production photovoltaïque", "mdi:solar-power", "sources", lambda d: c.config.get(CONF_PV_SENSOR) or "Indisponible"),
         FoxCatValueSensor(c, "phase", "Phase de régulation", "mdi:state-machine", "ems", lambda d: d["core"]["phase"]),
         FoxCatValueSensor(c, "ack", "Validation d’exécution EMS", "mdi:check-decagram-outline", "ems", lambda d: d["core"]["ack"]),
         FoxCatValueSensor(c, "derniere_raison", "Dernière décision EMS", "mdi:information-outline", "ems", lambda d: d["core"]["last_reason"]),
@@ -26,37 +30,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         FoxCatValueSensor(c, "execution_status", "État d’exécution chauffe-eau", "mdi:progress-check", "boiler", lambda d: d["core"]["execution_status"]),
         FoxCatValueSensor(c, "execution_command", "Commande chauffe-eau vérifiée", "mdi:code-tags-check", "boiler", lambda d: d["core"]["execution_command"]),
         FoxCatValueSensor(c, "execution_failure_reason", "Raison d'échec d'exécution", "mdi:alert-circle-outline", "boiler", lambda d: d["core"]["execution_failure_reason"] or "Aucune"),
-        FoxCatValueSensor(c, "boiler_user_status", "Boiler • Statut demande utilisateur", "mdi:hand-back-right-outline", "boiler", lambda d: d["core"].get("boiler_user_status", "AUCUNE")),
         FoxCatNumericSensor(c, "execution_retries", "Tentatives d'exécution", "mdi:counter", "boiler", lambda d: d["core"]["execution_retries"]),
         FoxCatNumericSensor(c, "erreur_ack", "Erreur ACK", "mdi:delta", "ems", lambda d: d["core"]["ack_error"], UnitOfPower.WATT, SensorDeviceClass.POWER),
         FoxCatNumericSensor(c, "reseau_reference_action", "Réseau avant action", "mdi:transmission-tower", "ems", lambda d: d["core"]["action_reference_grid"], UnitOfPower.WATT, SensorDeviceClass.POWER),
         FoxCatNumericSensor(c, "reseau_attendu", "Réseau attendu", "mdi:transmission-tower", "ems", lambda d: d["core"]["grid_expected"], UnitOfPower.WATT, SensorDeviceClass.POWER),
         FoxCatNumericSensor(c, "variation_attendue", "Variation attendue", "mdi:swap-vertical", "ems", lambda d: d["core"]["pending_delta"], UnitOfPower.WATT, SensorDeviceClass.POWER),
-        FoxCatNumericSensor(c, "production_pv", "Puissance de production photovoltaïque", "mdi:solar-power", "ems", lambda d: d["snapshot"].pv_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
-        FoxCatNumericSensor(c, "consommation_maison", "Puissance de consommation maison", "mdi:home-lightning-bolt", "ems", lambda d: d["snapshot"].house_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
+        FoxCatNumericSensor(c, "production_pv", "Puissance de production photovoltaïque", "mdi:solar-power", "energy", lambda d: d["snapshot"].pv_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
+        FoxCatNumericSensor(c, "consommation_maison", "Puissance de consommation maison", "mdi:home-lightning-bolt", "energy", lambda d: d["snapshot"].house_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
         FoxCatValueSensor(c, "statut_delestage", "Statut délestage haute consommation", "mdi:home-lightning-bolt-outline", "ems", lambda d: d["load_shed"].get("reason")),
-        FoxCatNumericSensor(c, "reinjection_reseau", "Puissance réinjectée au réseau", "mdi:transmission-tower-export", "ems", lambda d: d["snapshot"].export_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
-        FoxCatNumericSensor(c, "prelevement_reseau", "Puissance prélevée au réseau", "mdi:transmission-tower-import", "ems", lambda d: d["snapshot"].import_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
-        FoxCatNumericSensor(c, "balance_reseau", "Puissance nette réseau", "mdi:transmission-tower", "ems", lambda d: d["snapshot"].grid_net_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
-        FoxCatNumericSensor(c, "consommation_maison_calculee", "Consommation maison calculée par FoxCat", "mdi:home-lightning-bolt-outline", "ems", lambda d: d["measurements"].get("house_calculated_w"), UnitOfPower.WATT, SensorDeviceClass.POWER),
-        FoxCatNumericSensor(c, "ecart_consommation_maison", "Écart consommation maison / bilan FoxCat", "mdi:delta", "ems", lambda d: d["measurements"].get("house_delta_w"), UnitOfPower.WATT, SensorDeviceClass.POWER),
-        FoxCatValueSensor(c, "qualite_mesures", "Qualité des mesures FoxCat", "mdi:database-check-outline", "ems", lambda d: d["measurements"].get("quality", "INCONNUE")),
-        FoxCatValueSensor(c, "materiel_onduleur_installe", "Matériel • Onduleur installé", "mdi:solar-power-variant", "hardware", lambda d: f"{d['settings'].get('hardware_inverter_brand', 'SolarEdge')} — {d['settings'].get('hardware_inverter_model', 'SE4K')}"),
-        FoxCatValueSensor(c, "materiel_mesure_principale", "Matériel • Mesure réseau principale", "mdi:meter-electric-outline", "hardware", lambda d: f"{d['settings'].get('hardware_meter_brand', 'Smappee')} — {d['settings'].get('hardware_meter_model', 'Infinity')}"),
-        FoxCatValueSensor(c, "source_production_pv", "Source production PV FoxCat", "mdi:source-branch", "ems", lambda d: d["measurements"].get("pv_source", "AUCUNE")),
-        FoxCatValueSensor(c, "source_consommation_maison", "Source consommation maison FoxCat", "mdi:source-branch", "ems", lambda d: d["measurements"].get("house_source", "AUCUNE")),
-        FoxCatValueSensor(c, "source_reinjection_reseau", "Source réinjection réseau FoxCat", "mdi:source-branch", "ems", lambda d: d["measurements"].get("grid_export_source", "AUCUNE")),
-        FoxCatValueSensor(c, "source_prelevement_reseau", "Source prélèvement réseau FoxCat", "mdi:source-branch", "ems", lambda d: d["measurements"].get("grid_import_source", "AUCUNE")),
-        FoxCatNumericSensor(c, "pri_compteur_trames_capteurs", "PRI • Publications capteurs traitées", "mdi:counter", "pri", lambda d: d["measurements"].get("pri_report_count", 0)),
-        FoxCatValueSensor(c, "pri_derniere_source_trame", "PRI • Dernière source de trame", "mdi:access-point-network", "pri", lambda d: d["measurements"].get("last_pri_report_entity") or "AUCUNE"),
-        FoxCatValueSensor(c, "pri_derniere_publication_capteur", "PRI • Dernière publication capteur", "mdi:clock-check-outline", "pri", lambda d: _iso(d["measurements"].get("last_pri_report_at"))),
-        FoxCatValueSensor(c, "metronome_statut", "Statut métronome réseau", "mdi:metronome", "ems", lambda d: d["metronome"].get("status")),
-        FoxCatValueSensor(c, "metronome_source", "Source métronome réseau", "mdi:source-branch-sync", "ems", lambda d: d["metronome"].get("source")),
-        FoxCatValueSensor(c, "metronome_capteur_actif", "Capteur actif du métronome", "mdi:access-point-network", "ems", lambda d: d["metronome"].get("primary_entity") if d["metronome"].get("source") == "PRINCIPAL" else d["metronome"].get("fallback_entity")),
-        FoxCatValueSensor(c, "metronome_dernier_battement", "Dernier battement métronome", "mdi:clock-check-outline", "ems", lambda d: _iso(d["metronome"].get("last_pulse_at"))),
-        FoxCatNumericSensor(c, "metronome_compteur", "Compteur de battements métronome", "mdi:counter", "ems", lambda d: d["metronome"].get("pulse_count")),
-        FoxCatNumericSensor(c, "metronome_periode", "Période du métronome réseau", "mdi:timer-sync-outline", "ems", lambda d: d["metronome"].get("period_s"), "s"),
-        FoxCatValueSensor(c, "metronome_raison", "Diagnostic métronome réseau", "mdi:information-outline", "ems", lambda d: d["metronome"].get("last_reason")),
+        FoxCatNumericSensor(c, "reinjection_reseau", "Puissance réinjectée au réseau", "mdi:transmission-tower-export", "energy", lambda d: d["snapshot"].export_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
+        FoxCatNumericSensor(c, "prelevement_reseau", "Puissance prélevée au réseau", "mdi:transmission-tower-import", "energy", lambda d: d["snapshot"].import_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
+        FoxCatNumericSensor(c, "reseau_signe", "Puissance réseau signée (+ prélèvement / − réinjection)", "mdi:transmission-tower", "energy", lambda d: d["snapshot"].import_w - d["snapshot"].export_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
+        FoxCatNumericSensor(c, "balance_reseau", "Flux réseau interne (export positif)", "mdi:transmission-tower", "diagnostic", lambda d: d["snapshot"].grid_net_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
+        FoxCatValueSensor(c, "metronome_statut", "Statut métronome réseau", "mdi:metronome", "metronome", lambda d: d["metronome"].get("status")),
+        FoxCatValueSensor(c, "metronome_source", "Source métronome réseau", "mdi:source-branch-sync", "metronome", lambda d: d["metronome"].get("source")),
+        FoxCatValueSensor(c, "metronome_capteur_actif", "Capteur actif du métronome", "mdi:access-point-network", "metronome", lambda d: d["metronome"].get("primary_entity") if d["metronome"].get("source") == "PRINCIPAL" else d["metronome"].get("fallback_entity")),
+        FoxCatValueSensor(c, "metronome_dernier_battement", "Dernier battement métronome", "mdi:clock-check-outline", "metronome", lambda d: _iso(d["metronome"].get("last_pulse_at"))),
+        FoxCatNumericSensor(c, "metronome_compteur", "Compteur de battements métronome", "mdi:counter", "metronome", lambda d: d["metronome"].get("pulse_count")),
+        FoxCatNumericSensor(c, "metronome_periode", "Période du métronome réseau", "mdi:timer-sync-outline", "metronome", lambda d: d["metronome"].get("period_s"), "s"),
+        FoxCatValueSensor(c, "metronome_raison", "Diagnostic métronome réseau", "mdi:information-outline", "metronome", lambda d: d["metronome"].get("last_reason")),
         FoxCatNumericSensor(c, "temperature_boiler", "Température chauffe-eau", "mdi:thermometer-water", "boiler", lambda d: d["snapshot"].boiler_temp_c, UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE),
         FoxCatNumericSensor(c, "puissance_boiler", "Puissance chauffe-eau", "mdi:water-boiler", "boiler", lambda d: d["snapshot"].boiler_power_w, UnitOfPower.WATT, SensorDeviceClass.POWER),
         FoxCatNumericSensor(c, "pri_niveau_actuel", "Niveau de puissance PRI actuel", "mdi:solar-power-variant", "pri", lambda d: d["pri"]["current_level"], PERCENTAGE),
@@ -67,8 +59,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         FoxCatValueSensor(c, "pri_ack_onduleur", "ACK onduleur", "mdi:solar-power", "pri", lambda d: d["pri"]["ack_inverter"]),
         FoxCatValueSensor(c, "pri_ack_reseau", "ACK réseau", "mdi:transmission-tower", "pri", lambda d: d["pri"]["ack_grid"]),
         FoxCatValueSensor(c, "pri_derniere_raison", "Dernière décision PRI", "mdi:information-outline", "pri", lambda d: d["pri"]["last_reason"]),
-        FoxCatValueSensor(c, "pri_souverainete", "PRI • État de souveraineté", "mdi:shield-check-outline", "pri", lambda d: d["pri"].get("guard_reason", "INCONNU")),
-        FoxCatNumericSensor(c, "pri_numero_trame", "PRI • Numéro de trame", "mdi:counter", "pri", lambda d: d["pri"].get("frame_id", 0)),
         FoxCatNumericSensor(c, "pri_score_actuel", "Score PRI actuel", "mdi:scale-balance", "pri", lambda d: d["pri"]["score_current"]),
         FoxCatNumericSensor(c, "pri_score_cible", "Score PRI cible", "mdi:scale-balance", "pri", lambda d: d["pri"]["score_target"]),
         FoxCatNumericSensor(c, "pri_cible_maison", "Repère PRI selon consommation (diagnostic)", "mdi:home-percent-outline", "pri", lambda d: d["pri"]["house_target_level"], PERCENTAGE),
@@ -123,7 +113,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         FoxCatValueSensor(c, "derniere_trame", "Dernière trame énergétique", "mdi:clock-check-outline", "ems", lambda d: _iso(d["core"].get("last_frame"))),
         FoxCatValueSensor(c, "derniere_action", "Dernière action EMS", "mdi:clock-outline", "ems", lambda d: _iso(d["core"].get("last_action"))),
     ]
+    bus_view = lambda d: d.get("energy_bus", {})
     entities.extend([
+        FoxCatValueSensor(c, "energy_bus_etat", "État Energy Bus", "mdi:transit-connection-variant", "energy_bus", lambda d: "ACTIF" if d.get("energy_bus") is not None else "INDISPONIBLE"),
+        FoxCatNumericSensor(c, "energy_bus_frame_id", "Numéro de trame Energy Bus", "mdi:counter", "energy_bus", lambda d: bus_view(d).get("last_grid_frame_id", 0)),
+        FoxCatValueSensor(c, "energy_bus_derniere_trame", "Dernière trame Energy Bus", "mdi:clock-check-outline", "energy_bus", lambda d: _iso(bus_view(d).get("last_grid_frame_at"))),
+        FoxCatValueSensor(c, "energy_bus_intention_source", "Source dernière intention Energy Bus", "mdi:source-branch", "energy_bus", lambda d: (bus_view(d).get("ems_intent") or {}).get("source", "AUCUNE")),
+        FoxCatValueSensor(c, "energy_bus_intention_action", "Action dernière intention Energy Bus", "mdi:message-flash-outline", "energy_bus", lambda d: (bus_view(d).get("ems_intent") or {}).get("action", "AUCUNE")),
+        FoxCatNumericSensor(c, "energy_bus_intention_delta", "Delta dernière intention Energy Bus", "mdi:delta", "energy_bus", lambda d: (bus_view(d).get("ems_intent") or {}).get("delta_w", 0.0), UnitOfPower.WATT, SensorDeviceClass.POWER),
+        FoxCatRegistrySensor(c),
         FoxCatValueSensor(c, "periode_tarifaire", "Période tarifaire", "mdi:clock-outline", "pricing", lambda d: d["prices"].get("period", "—")),
         FoxCatValueSensor(c, "politique_reseau_active", "Politique réseau active", "mdi:transmission-tower", "pricing", lambda d: d["settings"].get("network_policy", "Compensation")),
         FoxCatValueSensor(c, "ems_onduleur_etat", "EMS Onduleur • État", "mdi:solar-power-variant", "pri", lambda d: d["energy_bus"]["inverter"].get("status", "—")),
@@ -145,20 +143,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             FoxCatNumericSensor(c, f"appareil_{safe}_hc_jour", f"🔌 {appliance_name} • Consommation HC aujourd’hui", "mdi:weather-night", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("hc_kwh",0.0), UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
             FoxCatValueSensor(c, f"appareil_{safe}_tarif_actuel", f"🔌 {appliance_name} • Tarif actuel", "mdi:clock-check-outline", "accounting", lambda d: d["prices"].get("period","—")),
         ])
-    # FoxCat 1.4.2 — un seul appareil Home Assistant pour toute la comptabilité.
-    # Les sections sont obtenues par une nomenclature stable des entités.
+    # V1.6.0 — classement fonctionnel officiel. Les kWh et pourcentages vont
+    # dans Énergie; les coûts/valeurs monétaires vont dans Tarification.
     for entity in entities:
-        key = getattr(entity, "_foxcat_key", None) or getattr(entity, "_attr_unique_id", "")
+        key = getattr(entity, "_key", None) or getattr(entity, "_attr_unique_id", "")
         text = str(key).lower()
-
-        if (
-            text.startswith("bilan_")
-            or "appareil_" in text
-        ) and isinstance(entity, FoxCatNumericSensor):
-            entity._foxcat_device_identifier = f"{c.entry.entry_id}_accounting"
-            entity._foxcat_device_name = "FoxCat Energy – Coûts & Bilan"
+        if text.startswith("bilan_") or "appareil_" in text:
+            monetary = any(marker in text for marker in ("cout", "valeur", "gain", "tarif"))
+            device = "pricing" if monetary else "energy"
+            entity._device = device
+            if isinstance(entity, FoxCatNumericSensor):
+                entity._foxcat_device_identifier = None
+                entity._foxcat_device_name = None
 
     async_add_entities(entities)
+
+
+class FoxCatRegistrySensor(FoxCatEntity, SensorEntity):
+    """Expose the central dashboard/entity registry as a diagnostic entity."""
+
+    def __init__(self, coordinator: FoxCatEnergyCoordinator) -> None:
+        super().__init__(coordinator, "registre_entites", "Registre des entités FoxCat", "mdi:database-search", "diagnostic")
+
+    def _snapshot(self) -> dict[str, Any]:
+        return registry_diagnostics(self.hass, self.coordinator.entry, self.coordinator.config)
+
+    @property
+    def native_value(self) -> str:
+        data = self._snapshot()
+        return f"{data['resolved_count']}/{data['binding_count']} résolues"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self._snapshot()
+        return {
+            "ordre_officiel": data["order"],
+            "non_resolues": data["unresolved"],
+            "indisponibles": data["unavailable"],
+            "sections": data["sections"],
+        }
 
 
 def _iso(value: Any) -> str:
@@ -216,7 +239,7 @@ class FoxCatNumericSensor(FoxCatEntity, SensorEntity):
                 "name": self._foxcat_device_name or self._foxcat_device_identifier,
                 "manufacturer": "FoxCat Energy",
                 "model": "Coûts & Bilan",
-                "via_device": (DOMAIN, self.coordinator.entry.entry_id),
+                "via_device": (DOMAIN, f"{self.coordinator.entry.entry_id}:ems"),
             }
         return super().device_info
 

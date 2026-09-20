@@ -42,6 +42,10 @@ from .const import (
     CONF_GRID_EXPORT_SENSOR,
     CONF_GRID_IMPORT_SENSOR,
     CONF_GRID_LEGACY_SENSOR,
+    CONF_GRID_SIGNED_SENSOR,
+    CONF_GRID_SIGN_CONVENTION,
+    GRID_SIGN_IMPORT_POSITIVE,
+    GRID_SIGN_EXPORT_POSITIVE,
     CONF_METRONOME_SENSOR,
     CONF_METRONOME_FALLBACK_SENSOR,
     CONF_HOUSE_SENSOR,
@@ -77,6 +81,7 @@ from .const import (
     CONF_WASHER_ON_2,
     CONF_WASHER_SOCKET,
     DOMAIN,
+    OFFICIAL_MENU_STEPS,
 )
 from .machines import records_for_options
 
@@ -112,17 +117,35 @@ def _normalise_input(user_input: dict[str, Any]) -> dict[str, Any]:
 # to register the ConfigFlow handler.  Building all selectors at import time made
 # a single selector/API incompatibility capable of preventing the handler from
 # being registered, which surfaced in the UI as "Invalid handler specified".
+def _grid_sign_selector() -> selector.SelectSelector:
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=[
+                {"value": GRID_SIGN_IMPORT_POSITIVE, "label": "+ prélèvement / − réinjection"},
+                {"value": GRID_SIGN_EXPORT_POSITIVE, "label": "+ réinjection / − prélèvement"},
+            ],
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
 def _core_schema() -> vol.Schema:
+    """FoxCat 1.6 sources: only grid signed power + PV are mandatory."""
     return vol.Schema(
         {
             vol.Required(CONF_INSTALLATION_NAME, default="FoxCat Energy"): selector.TextSelector(),
+            _required(CONF_GRID_SIGNED_SENSOR, "sensor.consommation_instantanee_0"): _entity("sensor"),
+            vol.Required(CONF_GRID_SIGN_CONVENTION, default=GRID_SIGN_IMPORT_POSITIVE): _grid_sign_selector(),
             _required(CONF_PV_SENSOR, "sensor.homefoxcat_load_solaire"): _entity("sensor"),
-            _required(CONF_HOUSE_SENSOR, "sensor.consommation_reelle_maison"): _entity("sensor"),
-            _required(CONF_GRID_EXPORT_SENSOR, "sensor.restitution_reseau"): _entity("sensor"),
-            _required(CONF_GRID_IMPORT_SENSOR, "sensor.consommation_instantanee_0"): _entity("sensor"),
-            _optional(CONF_GRID_LEGACY_SENSOR, "sensor.retourne_au_reseau"): _entity("sensor"),
-            _optional(CONF_METRONOME_SENSOR, "sensor.consommation_instantanee_0"): _entity("sensor"),
-            _optional(CONF_METRONOME_FALLBACK_SENSOR, "sensor.restitution_reseau"): _entity("sensor"),
+            _optional(CONF_METRONOME_FALLBACK_SENSOR): _entity("sensor"),
+        }
+    )
+
+
+def _metronome_schema() -> vol.Schema:
+    return vol.Schema(
+        {
+            _optional(CONF_METRONOME_FALLBACK_SENSOR): _entity("sensor"),
         }
     )
 
@@ -274,7 +297,9 @@ def _solar_schema() -> vol.Schema:
 
 _SCHEMA_BUILDERS = {
     "core": _core_schema,
+    "metronome": _metronome_schema,
     "boiler": _boiler_schema,
+    "inverter": _pri_schema,
     "pri": _pri_schema,
     "machines": _machines_schema,
     "pricing": _pricing_schema,
@@ -391,6 +416,12 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
         # coordinator store because they were exposed only as number entities.
         # If the ConfigEntry does not contain them yet, pre-fill the new page
         # with the live values so existing user tuning is not lost.
+        # Migration 1.5.x -> 1.6.0: l'ancien fallback pouvait être un capteur
+        # d'export positif uniquement. Il ne doit pas être réutilisé par défaut
+        # comme puissance réseau signée de secours.
+        if CONF_GRID_SIGNED_SENSOR not in data:
+            data[CONF_METRONOME_FALLBACK_SENSOR] = ""
+
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         if coordinator is not None:
             for key in (CONF_TARIFF_FIXED_INJECTION_PRICE,):
@@ -402,12 +433,17 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
         self._ensure_pending()
         return self.async_show_menu(
             step_id="init",
-            menu_options=["core", "boiler", "pri", "machines", "pricing", "hphc", "solar", "finish"],
+            menu_options=list(OFFICIAL_MENU_STEPS),
         )
 
     async def _section(self, step_id: str, user_input):
         if user_input is not None:
-            self._ensure_pending().update(_normalise_input(user_input))
+            normalised = _normalise_input(user_input)
+            pending = self._ensure_pending()
+            pending.update(normalised)
+            if step_id in {"core", "metronome"} and CONF_METRONOME_FALLBACK_SENSOR not in normalised:
+                # Empty option explicitly shadows a pre-1.6 fallback stored in entry.data.
+                pending[CONF_METRONOME_FALLBACK_SENSOR] = ""
             return await self.async_step_init()
         schema = _SCHEMA_BUILDERS[step_id]()
         return self.async_show_form(
@@ -415,6 +451,33 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
             data_schema=_schema_with_current(schema, self._effective()),
         )
 
+    async def async_step_sources(self, user_input=None):
+        return await self._section("core", user_input)
+
+    async def _info_section(self, step_id: str, user_input=None):
+        if user_input is not None:
+            return await self.async_step_init()
+        return self.async_show_form(step_id=step_id, data_schema=vol.Schema({}))
+
+    async def async_step_energy(self, user_input=None):
+        return await self._info_section("energy", user_input)
+
+    async def async_step_inverter(self, user_input=None):
+        return await self._section("pri", user_input)
+
+    async def async_step_ems(self, user_input=None):
+        return await self._info_section("ems", user_input)
+
+    async def async_step_energy_bus(self, user_input=None):
+        return await self._info_section("energy_bus", user_input)
+
+    async def async_step_metronome(self, user_input=None):
+        return await self._section("metronome", user_input)
+
+    async def async_step_diagnostic(self, user_input=None):
+        return await self._info_section("diagnostic", user_input)
+
+    # Compatibility with the pre-1.6 route name.
     async def async_step_core(self, user_input=None):
         return await self._section("core", user_input)
 

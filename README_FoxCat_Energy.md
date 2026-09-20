@@ -106,7 +106,7 @@ ARBITRE ÉNERGÉTIQUE
    ├── Machines
    ├── Batterie
    ├── Futures charges
-   └── PRI / Onduleur
+   └── Onduleur (moteur PRI)
    │
    ▼
 EXÉCUTION
@@ -375,7 +375,7 @@ Machine active → Boiler possible si énergie réellement disponible
 
 ---
 
-# PRI SolarEdge
+# Onduleur SolarEdge (moteur PRI)
 
 FoxCat Energy utilise le PRI comme actionneur de limitation de puissance photovoltaïque.
 
