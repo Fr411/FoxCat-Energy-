@@ -46,6 +46,12 @@ class MachineDefinition:
     on_2: str = DEFAULT_ON_2
     off_2: str = DEFAULT_OFF_2
     legacy_setting_key: str | None = None
+    cycle_start_w: float = 10.0
+    cycle_start_confirm_s: float = 20.0
+    cycle_duration_minutes: float = 120.0
+    cycle_margin_minutes: float = 45.0
+    cycle_end_w: float = 5.0
+    cycle_end_confirm_minutes: float = 10.0
 
     @property
     def setting_key(self) -> str:
@@ -64,6 +70,12 @@ class MachineDefinition:
             "off_1": self.off_1,
             "on_2": self.on_2,
             "off_2": self.off_2,
+            "cycle_start_w": self.cycle_start_w,
+            "cycle_start_confirm_s": self.cycle_start_confirm_s,
+            "cycle_duration_minutes": self.cycle_duration_minutes,
+            "cycle_margin_minutes": self.cycle_margin_minutes,
+            "cycle_end_w": self.cycle_end_w,
+            "cycle_end_confirm_minutes": self.cycle_end_confirm_minutes,
         }
 
 
@@ -91,6 +103,12 @@ def machine_from_dict(raw: dict[str, Any]) -> MachineDefinition | None:
         automatic_default=bool(raw.get("automatic", True)),
         sheddable=bool(raw.get("sheddable", True)),
         legacy_setting_key=legacy_setting_key,
+        cycle_start_w=float(raw.get("cycle_start_w",10.0)),
+        cycle_start_confirm_s=float(raw.get("cycle_start_confirm_s",20.0)),
+        cycle_duration_minutes=float(raw.get("cycle_duration_minutes",120.0)),
+        cycle_margin_minutes=float(raw.get("cycle_margin_minutes",45.0)),
+        cycle_end_w=float(raw.get("cycle_end_w",5.0)),
+        cycle_end_confirm_minutes=float(raw.get("cycle_end_confirm_minutes",10.0)),
         on_1=_str(raw.get("on_1"), DEFAULT_ON_1),
         off_1=_str(raw.get("off_1"), DEFAULT_OFF_1),
         on_2=_str(raw.get("on_2"), DEFAULT_ON_2),
