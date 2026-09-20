@@ -1,0 +1,48 @@
+Copyright (c) 2026 François Lechat / FoxCat Energy. Tous droits réservés.
+
+Le présent logiciel, son code source, ses algorithmes et l'ensemble de ses fichiers 
+associés (ci-après désignés le "Logiciel") sont la propriété exclusive de François Lechat.
+
+1. USAGE PERSONNEL ET DOMESTIQUE :
+L'autorisation est accordée, à titre gracieux, personnel et non transférable, à toute 
+personne physique d'installer et d'utiliser ce Logiciel sur son propre serveur Home Assistant 
+à des fins strictement privées, domestiques et non lucratives.
+
+2. RESTRICTIONS COMMERCIALES :
+Il est formellement interdit, sans accord écrit préalable de l'auteur :
+- De vendre, louer, concéder sous licence, distribuer ou commercialiser ce Logiciel ou tout produit dérivé.
+- D'intégrer ce Logiciel dans une box, un automate, une passerelle matérielle ou toute offre commerciale (matérielle ou immatérielle).
+- D'utiliser, déployer ou configurer ce Logiciel dans le cadre d'une prestation professionnelle d'installation, d'intégration, de consultance ou de maintenance rémunérée.
+
+3. PROPRIÉTÉ INTELLECTUELLE ET MODIFICATIONS :
+La modification du code pour un usage strictement privé est tolérée. Toute redistribution, 
+publication ou mise à disposition publique du code source, sous sa forme originale ou modifiée, 
+est interdite sans accord écrit préalable de l'auteur.
+
+4. ABSENCE D'OBLIGATION ET DE PROMESSE DE RÉSULTAT :
+Le Logiciel propose des logiques d'optimisation énergétique basées sur des modèles algorithmiques 
+et des données télémétriques externes. L'AUTEUR NE GARANTIT AUCUN RÉSULTAT ÉCONOMIQUE, ÉNERGÉTIQUE 
+OU FINANCIER. Notamment, aucune économie sur les factures d'électricité, aucun niveau d'autoconsommation, 
+ni aucune absence totale de réinjection ou de prélèvement réseau n'est garanti. L'utilisateur 
+reconnaît que les performances dépendent de facteurs extérieurs hors du contrôle de l'auteur 
+(météo, variabilité des tarifs, latence des capteurs, matériel tiers, etc.).
+
+5. EXCLUSION TOTALE DE GARANTIE ET LIMITATION DE RESPONSABILITÉ :
+LE LOGICIEL EST FOURNI "EN L'ÉTAT" ("AS IS"), SANS GARANTIE D'AUCUNE SORTE, EXPRESSE OU IMPLICITE, 
+Y COMPRIS MAIS SANS S'Y LIMITER, LES GARANTIES D'ADÉQUATION À UN USAGE PARTICULIER OU DE BON FONCTIONNEMENT.
+
+EN AUCUN CAS L'AUTEUR NE POURRA ÊTRE TENU RESPONSABLE D'UN QUELCONQUE DOMMAGE DIRECT, INDIRECT, 
+ACCESSOIRE, SPÉCIAL OU CONSÉCUTIF RÉSULTANT DE L'INSTALLATION, DE L'UTILISATION OU DE L'IMPOSSIBILITÉ 
+D'UTILISER LE LOGICIEL. CELA INCLUT, DE MANIÈRE NON LIMITATIVE :
+- Les pannes, dégradations, surchauffes ou usures prématurées d'équipements physiques (onduleurs, 
+  relais, automates, chauffe-eau, pompes à chaleur, appareils électroménagers).
+- Les coupures d'alimentation, déclenchements de disjoncteurs ou surtensions.
+- Les pertes financières, surcoûts de facturation électrique, pénalités tarifaires (notamment en tarif capacitaire ou dynamique).
+- Les pertes de données ou interruptions de service domotique.
+
+6. DÉCHARGE JURIDIQUE ET ACCEPTATION DES RISQUES :
+L'INSTALLATION OU L'UTILISATION DU LOGICIEL VAUT ACCEPTATION PLEINE, ENTIÈRE ET SANS RÉSERVE 
+DES PRÉSENTES CONDITIONS. L'UTILISATEUR ASSUME L'ENTIÈRE RESPONSABILITÉ DU CONTRÔLE ET DE LA 
+SÉCURITÉ DE SES INSTALLATIONS ÉLECTRIQUES ET THERMIQUES. PAR LA PRÉSENTE, L'UTILISATEUR RENONCE 
+EXPRESSÉMENT ET IRRÉVOCABLEMENT À TOUT RECOURS, ACTION EN JUSTICE, RÉCLAMATION OU DEMANDE D'INDEMNISATION 
+À L'ENCONTRE DE L'AUTEUR, SUR QUELQUE FONDEMENT JURIDIQUE QUE CE SOIT.
