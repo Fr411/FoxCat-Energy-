@@ -8,7 +8,8 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON
 from homeassistant.core import Event, HomeAssistant, callback
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change
+from homeassistant.helpers import event as event_helper
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -53,6 +54,8 @@ from .const import (
     CONF_GRID_EXPORT_SENSOR,
     CONF_GRID_IMPORT_SENSOR,
     CONF_GRID_LEGACY_SENSOR,
+    CONF_METRONOME_SENSOR,
+    CONF_METRONOME_FALLBACK_SENSOR,
     CONF_HOUSE_SENSOR,
     CONF_INSTALLATION_NAME,
     CONF_MACHINES_V13,
@@ -182,6 +185,33 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "decision_tick_count": 0,
             "last_decision_at": None,
         }
+        # FoxCat 1.5.4 : horloge réseau synchronisée sur un capteur physique.
+        # Le capteur Smappee choisi donne la phase; un capteur de secours peut
+        # prendre le relais. Le métronome ne dépend donc plus d'une variation
+        # de valeur : les republications identiques restent des battements.
+        primary_clock = self.config.get(CONF_METRONOME_SENSOR) or self.config.get(CONF_GRID_IMPORT_SENSOR)
+        fallback_clock = self.config.get(CONF_METRONOME_FALLBACK_SENSOR) or self.config.get(CONF_GRID_EXPORT_SENSOR)
+        if fallback_clock == primary_clock:
+            fallback_clock = None
+        self.metronome_state: dict[str, Any] = {
+            "status": "INITIALISATION",
+            "source": "AUCUNE",
+            "primary_entity": primary_clock,
+            "fallback_entity": fallback_clock,
+            "primary_last_report_at": None,
+            "fallback_last_report_at": None,
+            "last_pulse_at": None,
+            "last_pulse_source": "AUCUNE",
+            "pulse_count": 0,
+            "primary_report_count": 0,
+            "fallback_report_count": 0,
+            "period_s": float(self.settings.get("metronome_period_s", 30.0)),
+            "next_due_at": None,
+            "last_reason": "Métronome réseau en attente de synchronisation.",
+        }
+        self._metronome_lock = asyncio.Lock()
+        self._metronome_pulse_lock = asyncio.Lock()
+        self._metronome_last_seen_report: dict[str, datetime] = {}
         self.solar_forecast = SolarForecast()
         self._unsubs: list[Any] = []
         self._core_lock = asyncio.Lock()
@@ -253,6 +283,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.settings.setdefault(machine.setting_key, machine.automatic_default)
 
         self.settings["mode"] = MODE_ALIASES.get(str(self.settings.get("mode")), str(self.settings.get("mode")))
+        self.metronome_state["period_s"] = float(self.settings.get("metronome_period_s", 30.0))
         self._register_listeners()
         await self.async_config_entry_first_refresh()
 
@@ -309,26 +340,49 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _register_listeners(self) -> None:
-        # FoxCat 1.4.4 : horloge EMS/PRI unique et déterministe.
-        # Le CORE n'attend plus un "state_changed" du capteur maison :
-        # si deux mesures successives sont identiques, Home Assistant peut ne
-        # produire aucun événement exploitable. Deux ticks fixes par minute
-        # garantissent donc UNE décision EMS/PRI toutes les 30 secondes.
+        # FoxCat 1.5.4 : métronome réseau interne.
         #
-        # Décalage de +2 s (xx:02 / xx:32) : laisse le temps aux capteurs
-        # physiques configurés sur 30 s de publier leur nouvelle trame avant
-        # que FoxCat ne fasse son acquisition.
+        # Le capteur choisi (Smappee consommation réseau recommandé) fournit le
+        # battement physique. Sur les versions HA qui exposent state_reported,
+        # une republication de la même valeur est elle aussi reconnue. Sinon le
+        # watchdog se resynchronise sur State.last_reported/last_updated.
+        clock_entities = list(dict.fromkeys(
+            eid for eid in [
+                self.metronome_state.get("primary_entity"),
+                self.metronome_state.get("fallback_entity"),
+            ] if eid
+        ))
+        if clock_entities:
+            track_report = getattr(event_helper, "async_track_state_report_event", None)
+            if callable(track_report):
+                try:
+                    self._unsubs.append(
+                        track_report(self.hass, clock_entities, self._on_metronome_report)
+                    )
+                except (TypeError, AttributeError):
+                    # Compatibilité HA : state_changed + watchdog metadata.
+                    self._unsubs.append(
+                        async_track_state_change_event(self.hass, clock_entities, self._on_metronome_report)
+                    )
+            else:
+                self._unsubs.append(
+                    async_track_state_change_event(self.hass, clock_entities, self._on_metronome_report)
+                )
+
+        # Le watchdog n'est pas une seconde horloge de décision : il observe
+        # les timestamps de publication, active le fallback et crée un battement
+        # interne uniquement lorsque le capteur physique n'a pas produit
+        # d'événement exploitable mais reste frais.
         self._unsubs.append(
-            async_track_time_change(
+            async_track_time_interval(
                 self.hass,
-                self._on_ems_30s_tick,
-                second=[2, 32],
+                self._on_metronome_watchdog,
+                timedelta(seconds=2),
             )
         )
 
-        # Les changements réseau restent de la télémétrie immédiate.
-        # consommation maison. Toute nouvelle trame import/export peut relancer
-        # une correction d'une marche.
+        # Les changements import/export restent de la télémétrie immédiate.
+        # Quand le métronome est actif, ils ne créent jamais une seconde marche PRI.
         grid_entities = list(dict.fromkeys(
             eid for eid in [
                 self.config.get(CONF_GRID_EXPORT_SENSOR),
@@ -394,14 +448,178 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Compatibilité interne : une variation maison ne cadence plus le CORE."""
         self.async_set_updated_data(self._build_data())
 
-    @callback
-    def _on_ems_30s_tick(self, now: datetime) -> None:
-        """Cadence du EMS CORE uniquement.
+    @staticmethod
+    def _state_report_at(state: Any) -> datetime | None:
+        """Retourne le dernier instant de publication réel connu d'une entité."""
+        if state is None:
+            return None
+        reported = getattr(state, "last_reported", None)
+        if isinstance(reported, datetime):
+            return reported
+        updated = getattr(state, "last_updated", None)
+        return updated if isinstance(updated, datetime) else None
 
-        Le EMS Onduleur est cadencé exclusivement par une nouvelle trame du
-        capteur réseau/réinjection configuré.
-        """
-        self.hass.async_create_task(self.async_handle_house_frame())
+    def _metronome_entity_fresh(self, entity_id: str | None, now: datetime, timeout_s: float) -> bool:
+        if not entity_id:
+            return False
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in {"unknown", "unavailable", "none", ""}:
+            return False
+        reported_at = self._state_report_at(state)
+        if not isinstance(reported_at, datetime):
+            return False
+        return (now - reported_at).total_seconds() <= timeout_s
+
+    @callback
+    def _on_metronome_report(self, event: Event) -> None:
+        """Capture un heartbeat du capteur principal ou de secours."""
+        entity_id = str(event.data.get("entity_id", ""))
+        if not entity_id:
+            return
+        state = event.data.get("new_state") or self.hass.states.get(entity_id)
+        reported_at = self._state_report_at(state) or dt_util.now()
+        self.hass.async_create_task(
+            self._async_metronome_report(entity_id, reported_at, "event")
+        )
+
+    @callback
+    def _on_metronome_watchdog(self, now: datetime) -> None:
+        self.hass.async_create_task(self._async_metronome_watchdog(now))
+
+    async def _async_metronome_watchdog(self, now: datetime) -> None:
+        """Surveille la fraîcheur, détecte les republications et gère le fallback."""
+        primary = str(self.metronome_state.get("primary_entity") or "")
+        fallback = str(self.metronome_state.get("fallback_entity") or "")
+
+        # last_reported évolue même quand la valeur numérique ne change pas sur
+        # les versions HA récentes. Cela ferme précisément le cas 100 -> 90 puis
+        # blocage sur une réinjection stable.
+        for entity_id in (primary, fallback):
+            if not entity_id:
+                continue
+            state = self.hass.states.get(entity_id)
+            reported_at = self._state_report_at(state)
+            if not isinstance(reported_at, datetime):
+                continue
+            previous = self._metronome_last_seen_report.get(entity_id)
+            if previous is None or reported_at > previous:
+                await self._async_metronome_report(entity_id, reported_at, "watchdog")
+
+        period = max(float(self.settings.get("metronome_period_s", 30.0)), 10.0)
+        primary_timeout = max(float(self.settings.get("metronome_primary_timeout_s", 45.0)), period)
+        fallback_timeout = max(float(self.settings.get("metronome_fallback_timeout_s", 90.0)), primary_timeout)
+        primary_fresh = self._metronome_entity_fresh(primary, now, primary_timeout)
+        fallback_fresh = self._metronome_entity_fresh(fallback, now, fallback_timeout)
+
+        last_pulse = self.metronome_state.get("last_pulse_at")
+        pulse_age = (now - last_pulse).total_seconds() if isinstance(last_pulse, datetime) else 1e9
+
+        if not primary_fresh and fallback_fresh:
+            self.metronome_state["status"] = "FALLBACK"
+            self.metronome_state["source"] = "SECOURS"
+            self.metronome_state["last_reason"] = "Capteur principal muet : synchronisation sur le capteur de secours."
+            # Si le fallback ne change pas de valeur mais reste fraîchement
+            # publié, le métronome interne garantit quand même la cadence.
+            if pulse_age >= period:
+                await self._async_metronome_pulse(fallback, "fallback_interne", now)
+            return
+
+        if primary_fresh:
+            self.metronome_state["status"] = "SYNCHRONISE"
+            self.metronome_state["source"] = "PRINCIPAL"
+            if pulse_age >= period:
+                await self._async_metronome_pulse(primary, "principal_interne", now)
+            return
+
+        # Aucun capteur frais : on gèle les décisions plutôt que d'utiliser
+        # aveuglément des données réseau anciennes.
+        self.metronome_state["status"] = "PERDU"
+        self.metronome_state["source"] = "AUCUNE"
+        self.metronome_state["last_reason"] = "Principal et secours périmés : cadence EMS/PRI gelée par sécurité."
+        self.pri_state["guard_reason"] = "metronome_perdu"
+        self.async_set_updated_data(self._build_data())
+
+    async def _async_metronome_report(self, entity_id: str, reported_at: datetime, origin: str) -> None:
+        """Enregistre une publication et transforme le heartbeat en battement régulé."""
+        async with self._metronome_lock:
+            previous = self._metronome_last_seen_report.get(entity_id)
+            if previous is not None and reported_at <= previous:
+                return
+            self._metronome_last_seen_report[entity_id] = reported_at
+
+            primary = str(self.metronome_state.get("primary_entity") or "")
+            fallback = str(self.metronome_state.get("fallback_entity") or "")
+            now = dt_util.now()
+            period = max(float(self.settings.get("metronome_period_s", 30.0)), 10.0)
+            primary_timeout = max(float(self.settings.get("metronome_primary_timeout_s", 45.0)), period)
+            fallback_timeout = max(float(self.settings.get("metronome_fallback_timeout_s", 90.0)), primary_timeout)
+
+            if entity_id == primary:
+                self.metronome_state["primary_last_report_at"] = reported_at
+                self.metronome_state["primary_report_count"] = int(self.metronome_state.get("primary_report_count", 0)) + 1
+                source = "principal"
+            elif entity_id == fallback:
+                self.metronome_state["fallback_last_report_at"] = reported_at
+                self.metronome_state["fallback_report_count"] = int(self.metronome_state.get("fallback_report_count", 0)) + 1
+                source = "secours"
+            else:
+                return
+
+            report_age = max((now - reported_at).total_seconds(), 0.0)
+            if source == "principal" and report_age > primary_timeout:
+                self.metronome_state["last_reason"] = "Heartbeat principal trop ancien : attente du capteur de secours."
+                return
+            if source == "secours" and report_age > fallback_timeout:
+                self.metronome_state["last_reason"] = "Heartbeat secours trop ancien : aucune synchronisation autorisée."
+                return
+
+            primary_fresh = self._metronome_entity_fresh(primary, now, primary_timeout)
+            if source == "secours" and primary_fresh:
+                # Le fallback est chaud et prêt, mais ne cadence pas tant que le
+                # principal est sain. Cela évite tout double pas PRI.
+                self.metronome_state["last_reason"] = "Heartbeat secours reçu; principal toujours souverain."
+                self.async_set_updated_data(self._build_data())
+                return
+
+            last_pulse = self.metronome_state.get("last_pulse_at")
+            pulse_age = (now - last_pulse).total_seconds() if isinstance(last_pulse, datetime) else 1e9
+            # Fenêtre anti-double-pulse : une grappe de capteurs Smappee peut
+            # republier plusieurs états quasi simultanément.
+            if pulse_age < period:
+                return
+
+            await self._async_metronome_pulse(entity_id, f"{source}_{origin}", now)
+
+    async def _async_metronome_pulse(self, entity_id: str, source: str, pulse_at: datetime) -> None:
+        """Un battement = une acquisition CORE + une décision PRI au maximum."""
+        async with self._metronome_pulse_lock:
+            last_pulse = self.metronome_state.get("last_pulse_at")
+            period = max(float(self.settings.get("metronome_period_s", 30.0)), 10.0)
+            if isinstance(last_pulse, datetime) and (pulse_at - last_pulse).total_seconds() < period:
+                return
+
+            self.metronome_state.update({
+                "status": "FALLBACK" if "fallback" in source or "secours" in source else "SYNCHRONISE",
+                "source": "SECOURS" if "fallback" in source or "secours" in source else "PRINCIPAL",
+                "last_pulse_at": pulse_at,
+                "last_pulse_source": source,
+                "pulse_count": int(self.metronome_state.get("pulse_count", 0)) + 1,
+                "period_s": period,
+                "next_due_at": pulse_at + timedelta(seconds=period),
+                "last_reason": f"Battement réseau synchronisé sur {entity_id} ({source}).",
+            })
+
+            # Laisser une très courte fenêtre à la grappe Smappee pour publier ses
+            # autres grandeurs de la même trame avant l'acquisition globale.
+            await asyncio.sleep(0.20)
+
+            # Même battement, deux cœurs indépendants : ne jamais remettre le
+            # PRI derrière _core_lock. Un boiler ou une machine ne peut donc pas
+            # retarder la marche RRCR suivante.
+            self.hass.async_create_task(
+                self.async_handle_inverter_grid_frame(f"metronome:{entity_id}:{source}")
+            )
+            self.hass.async_create_task(self.async_handle_house_frame())
 
     @callback
     def _on_grid_event(self, event: Event) -> None:
@@ -414,13 +632,14 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # uniquement de repli lorsqu'aucun capteur export n'est configuré.
         inverter_clock = export_id or legacy_id
 
-        if entity_id and entity_id == inverter_clock:
-            self.hass.async_create_task(
-                self.async_handle_inverter_grid_frame(entity_id)
-            )
+        # En 1.5.4, le métronome configurable est l'unique horloge PRI.
+        # Les événements réseau restent immédiatement visibles mais ne doivent
+        # plus créer une deuxième marche RRCR en parallèle. Compatibilité : si
+        # aucun capteur métronome n'existe, l'ancienne source réseau garde la main.
+        metronome_clock = str(self.metronome_state.get("primary_entity") or "")
+        if not metronome_clock and entity_id and entity_id == inverter_clock:
+            self.hass.async_create_task(self.async_handle_inverter_grid_frame(entity_id))
         else:
-            # Import/legacy secondaire : télémétrie immédiate pour le CORE,
-            # mais jamais une seconde décision RRCR sur la même trame physique.
             self.hass.async_create_task(self.async_handle_grid_change())
 
     @callback
@@ -1797,6 +2016,7 @@ Cherche une fenêtre solaire exploitable avant la prochaine échéance énergét
             "core": dict(self.core_state),
             "pri": dict(self.pri_state),
             "energy_bus": self.energy_bus.view(),
+            "metronome": dict(self.metronome_state),
             "machine_cycles": self.machine_cycle_manager.snapshot(dt_util.now()),
             "solar": self.solar_forecast,
             "prices": self.prices(),
