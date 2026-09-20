@@ -42,6 +42,8 @@ from .const import (
     CONF_GRID_EXPORT_SENSOR,
     CONF_GRID_IMPORT_SENSOR,
     CONF_GRID_LEGACY_SENSOR,
+    CONF_METRONOME_SENSOR,
+    CONF_METRONOME_FALLBACK_SENSOR,
     CONF_HOUSE_SENSOR,
     CONF_INSTALLATION_NAME,
     CONF_MACHINES_V13,
@@ -119,6 +121,8 @@ def _core_schema() -> vol.Schema:
             _required(CONF_GRID_EXPORT_SENSOR, "sensor.restitution_reseau"): _entity("sensor"),
             _required(CONF_GRID_IMPORT_SENSOR, "sensor.consommation_instantanee_0"): _entity("sensor"),
             _optional(CONF_GRID_LEGACY_SENSOR, "sensor.retourne_au_reseau"): _entity("sensor"),
+            _optional(CONF_METRONOME_SENSOR, "sensor.consommation_instantanee_0"): _entity("sensor"),
+            _optional(CONF_METRONOME_FALLBACK_SENSOR, "sensor.restitution_reseau"): _entity("sensor"),
         }
     )
 
