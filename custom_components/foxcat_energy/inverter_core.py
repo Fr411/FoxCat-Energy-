@@ -18,10 +18,59 @@ class InverterDecision:
     pv_at_limit: bool
     more_solar_possible: bool
     max_solar_reached: bool
+    score_current: float = 0.0
+    score_target: float = 0.0
+    house_target_level: int = 100
+    estimated_house_w: float = 0.0
+    target_pv_w: float = 0.0
+    predicted_import_w: float = 0.0
+    predicted_export_w: float = 0.0
 
 
 class InverterCore:
-    """Second cœur FoxCat : uniquement responsable de la puissance onduleur."""
+    """Second cœur FoxCat : uniquement responsable de la puissance onduleur.
+
+    Depuis 1.5.5, la politique ``Injection facturée`` n'avance plus d'un palier
+    à chaque battement. Le métronome garantit uniquement une trame fraîche.
+    Sur cette trame, le moteur simule tous les paliers RRCR disponibles
+    (0, 10, ..., 100 %) et commande directement le meilleur compromis réseau.
+    """
+
+    @staticmethod
+    def _score_grid(
+        import_w: float,
+        export_w: float,
+        *,
+        import_target_w: float,
+        import_max_w: float,
+        export_max_w: float,
+        weight_import: float,
+        weight_export: float,
+    ) -> float:
+        """Score réseau : plus petit = meilleur.
+
+        Le léger import est une cible et non une obligation absolue. Les sorties
+        hors enveloppe (réinjection au-delà du maximum ou import excessif) sont
+        fortement pénalisées pour éviter qu'un simple écart de quantification
+        de 10 % ne choisisse un palier agressif.
+        """
+        import_w = max(float(import_w), 0.0)
+        export_w = max(float(export_w), 0.0)
+        base = abs(import_w - import_target_w) * weight_import
+        base += export_w * weight_export
+        if import_w > import_max_w:
+            base += (import_w - import_max_w) * weight_import * 4.0
+        if export_w > export_max_w:
+            base += (export_w - export_max_w) * weight_export * 4.0
+        return base
+
+    @staticmethod
+    def _nearest_level_for_power(power_w: float, inverter_w: float) -> int:
+        if inverter_w <= 0:
+            return 100
+        raw = max(0.0, min(100.0, float(power_w) / inverter_w * 100.0))
+        # RRCR FoxCat expose uniquement les paliers de 10 %.
+        return max(0, min(100, int(round(raw / 10.0) * 10)))
 
     def decide(
         self,
@@ -47,8 +96,8 @@ class InverterCore:
         max_solar = current > 0 and not pv_at_limit
         more_possible = current < 100 and pv_at_limit
 
-        # Compensation : le réseau est tampon. On ne bride pas volontairement
-        # la production PV; l'EMS principal reste libre de gérer ses charges.
+        # Compensation : comportement historique conservé. Le réseau sert de
+        # tampon et FoxCat libère progressivement l'onduleur vers 100 %.
         if network_policy == NETWORK_COMPENSATION:
             target = min(current + step_pct, 100) if current < 100 else 100
             return InverterDecision(
@@ -58,38 +107,138 @@ class InverterCore:
                 limit_w, ratio, pv_at_limit, more_possible, max_solar,
             )
 
-        # Injection facturée : léger import recherché pour éviter le rejet.
+        # Injection facturée : calcul prédictif du meilleur palier.
         export_limit = max(float(settings.get("network_billed_export_max_w", 50.0)), 0.0)
         import_target = max(float(settings.get("network_billed_import_target_w", 100.0)), 0.0)
         import_high = max(float(settings.get("network_billed_import_max_w", 250.0)), import_target)
+        weight_import = max(float(settings.get("pri_weight_import", 1.0)), 0.01)
+        weight_export = max(float(settings.get("pri_weight_export", 2.0)), 0.01)
+        score_margin = max(float(settings.get("pri_score_margin", 25.0)), 0.0)
 
         export_w = max(float(snapshot.export_w), 0.0)
         import_w = max(float(snapshot.import_w), 0.0)
 
-        if export_w > export_limit:
-            target = max(current - step_pct, 0)
-            return InverterDecision(
-                current, target, "REDUCTION",
-                f"Injection facturée : export {export_w:.0f} W > {export_limit:.0f} W, réduction d'un palier.",
-                limit_w, ratio, pv_at_limit, more_possible, max_solar,
+        # Bilan physique sur la même trame : PV + import = maison + export.
+        # Cette valeur est préférable pour le calcul PRI car elle reste alignée
+        # sur le compteur réseau qui donne le battement du métronome.
+        estimated_house_w = max(pv_w + import_w - export_w, 0.0)
+        target_pv_w = max(estimated_house_w - import_target, 0.0)
+        house_target_level = self._nearest_level_for_power(target_pv_w, inverter_w)
+
+        current_score = self._score_grid(
+            import_w,
+            export_w,
+            import_target_w=import_target,
+            import_max_w=import_high,
+            export_max_w=export_limit,
+            weight_import=weight_import,
+            weight_export=weight_export,
+        )
+
+        # Lorsque le PV est sous le plafond actuel, sa puissance mesurée est une
+        # bonne estimation du potentiel solaire disponible. Une remontée de PRI
+        # ne peut alors rien apporter et la simulation la traite comme telle.
+        # Si le PV touche le plafond (ou si le niveau vaut 0 %), le potentiel
+        # supérieur est inconnu : on suppose qu'un palier supérieur peut remplir
+        # son plafond. C'est sûr côté réseau car le plafond calculé reste dérivé
+        # de la consommation maison et de l'import cible.
+        solar_is_capped = pv_at_limit or current == 0
+
+        candidates: list[tuple[float, int, float, float, float]] = []
+        for level in range(0, 101, 10):
+            candidate_limit_w = inverter_w * level / 100.0
+
+            if level == current:
+                predicted_pv_w = pv_w
+            elif level < current:
+                # En descendant, on connaît au minimum la production actuelle.
+                predicted_pv_w = min(pv_w, candidate_limit_w)
+            elif solar_is_capped:
+                # Potentiel solaire inconnu au-dessus du plafond actuel : on
+                # simule le plafond candidat. Si le soleil manque réellement,
+                # le résultat sera seulement davantage d'import, jamais plus
+                # de réinjection que ce que permet ce plafond.
+                predicted_pv_w = candidate_limit_w
+            else:
+                # PV non bridé : relever le PRI ne crée pas de soleil.
+                predicted_pv_w = min(pv_w, candidate_limit_w)
+
+            grid_w = predicted_pv_w - estimated_house_w
+            predicted_export_w = max(grid_w, 0.0)
+            predicted_import_w = max(-grid_w, 0.0)
+            candidate_score = self._score_grid(
+                predicted_import_w,
+                predicted_export_w,
+                import_target_w=import_target,
+                import_max_w=import_high,
+                export_max_w=export_limit,
+                weight_import=weight_import,
+                weight_export=weight_export,
+            )
+            candidates.append(
+                (candidate_score, level, predicted_import_w, predicted_export_w, predicted_pv_w)
             )
 
-        if import_w > import_high:
-            if current < 100 and pv_at_limit:
-                target = min(current + step_pct, 100)
-                return InverterDecision(
-                    current, target, "LIBERATION",
-                    f"Import {import_w:.0f} W et PV au plafond ({pv_w:.0f}/{limit_w:.0f} W) : libération d'un palier.",
-                    limit_w, ratio, pv_at_limit, True, False,
-                )
-            return InverterDecision(
-                current, current, "MAINTIEN",
-                f"Import {import_w:.0f} W mais PV sous plafond ({pv_w:.0f}/{limit_w:.0f} W) : maximum solaire instantané atteint.",
-                limit_w, ratio, pv_at_limit, False, True,
+        # Score minimal. En cas d'égalité, rester le plus près possible du
+        # niveau courant afin d'éviter une commutation RRCR inutile.
+        best = min(candidates, key=lambda row: (row[0], abs(row[1] - current), row[1]))
+        best_score, target, predicted_import, predicted_export, predicted_pv = best
+
+        # Hystérésis : un faible gain de score ne justifie pas une commutation.
+        # Une situation hors enveloppe garde toutefois la priorité et peut
+        # commander immédiatement le palier calculé.
+        outside_envelope = export_w > export_limit or import_w > import_high
+        improvement = current_score - best_score
+        if target != current and not outside_envelope and improvement < score_margin:
+            target = current
+            best_score = current_score
+            predicted_import = import_w
+            predicted_export = export_w
+            predicted_pv = pv_w
+
+        target_limit_w = inverter_w * target / 100.0
+        action = "REDUCTION" if target < current else "LIBERATION" if target > current else "MAINTIEN"
+
+        if target == current:
+            reason = (
+                "PRI prédictif : niveau maintenu à "
+                f"{current} %. Maison estimée={estimated_house_w:.0f} W, "
+                f"réseau={export_w:.0f} W export/{import_w:.0f} W import, "
+                f"cible import≈{import_target:.0f} W."
             )
+        else:
+            reason = (
+                "PRI prédictif : calcul direct "
+                f"{current}% -> {target}%. Maison estimée={estimated_house_w:.0f} W, "
+                f"PV cible≈{target_pv_w:.0f} W, plafond choisi={target_limit_w:.0f} W, "
+                f"réseau prévu≈{predicted_export:.0f} W export/{predicted_import:.0f} W import "
+                f"(score {current_score:.0f}->{best_score:.0f})."
+            )
+
+        target_ratio = (predicted_pv / target_limit_w) if target_limit_w > 0 else 0.0
+        target_at_limit = (
+            target > 0
+            and (
+                predicted_pv >= max(target_limit_w - tolerance_w, 0.0)
+                or target_ratio >= ratio_threshold
+            )
+        )
 
         return InverterDecision(
-            current, current, "MAINTIEN",
-            f"Zone réseau maîtrisée : export={export_w:.0f} W, import={import_w:.0f} W, cible léger import ≈ {import_target:.0f} W.",
-            limit_w, ratio, pv_at_limit, more_possible, max_solar,
+            current_level=current,
+            target_level=target,
+            action=action,
+            reason=reason,
+            pv_limit_w=limit_w,
+            pv_ratio=ratio,
+            pv_at_limit=pv_at_limit,
+            more_solar_possible=(target < 100 and target_at_limit),
+            max_solar_reached=(target > 0 and not target_at_limit),
+            score_current=current_score,
+            score_target=best_score,
+            house_target_level=house_target_level,
+            estimated_house_w=estimated_house_w,
+            target_pv_w=target_pv_w,
+            predicted_import_w=predicted_import,
+            predicted_export_w=predicted_export,
         )
