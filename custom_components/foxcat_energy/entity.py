@@ -27,6 +27,7 @@ class FoxCatEntity(CoordinatorEntity[FoxCatEnergyCoordinator]):
             "machines": "FoxCat Energy – Machines",
             "solar": "FoxCat Energy – EMS 2",
             "pricing": "FoxCat Energy – Tarification",
+            "hardware": "FoxCat Energy – Matériel installé",
         }
         return DeviceInfo(
             identifiers={(DOMAIN, f"{self.coordinator.entry.entry_id}:{self._device}")},

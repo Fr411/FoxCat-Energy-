@@ -69,6 +69,22 @@ async def async_setup_entry(
                 "ems",
                 "dashboard",
             ),
+            FoxCatActionButton(
+                coordinator,
+                "demarrer_boiler_utilisateur",
+                "Démarrer le boiler",
+                "mdi:water-boiler",
+                "boiler",
+                "boiler_start",
+            ),
+            FoxCatActionButton(
+                coordinator,
+                "arreter_boiler_utilisateur",
+                "Arrêter le boiler",
+                "mdi:water-boiler-off",
+                "boiler",
+                "boiler_stop",
+            ),
         ]
     )
 
@@ -120,6 +136,12 @@ class FoxCatActionButton(FoxCatEntity, ButtonEntity):
 
         elif self._action == "dashboard":
             await async_regenerate_dashboard(self.hass)
+
+        elif self._action == "boiler_start":
+            await self.coordinator.async_user_start_boiler()
+
+        elif self._action == "boiler_stop":
+            await self.coordinator.async_user_stop_boiler()
 
         self.coordinator.async_set_updated_data(
             self.coordinator._build_data()
