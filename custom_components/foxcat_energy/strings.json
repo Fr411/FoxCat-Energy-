@@ -7,17 +7,14 @@
     },
     "step": {
       "user": {
-        "title": "FoxCat Energy – Mesures principales",
-        "description": "Configure les mesures de référence et l’horloge réseau. Le métronome est synchronisé sur le capteur Smappee choisi; le capteur de secours reprend automatiquement si le principal devient muet.",
+        "title": "FoxCat Energy – Sources énergétiques",
+        "description": "Deux mesures physiques suffisent : puissance réseau signée et production photovoltaïque. FoxCat calcule ensuite consommation maison, prélèvement et réinjection. Le capteur de secours est optionnel.",
         "data": {
           "installation_name": "Nom de l'installation",
+          "grid_signed_sensor": "Puissance réseau signée",
+          "grid_sign_convention": "Convention du signe réseau",
           "pv_sensor": "Production photovoltaïque",
-          "house_sensor": "Consommation réelle maison",
-          "grid_export_sensor": "Réinjection réseau (positive)",
-          "grid_import_sensor": "Prélèvement réseau (positif)",
-          "grid_legacy_sensor": "Ancien flux réseau signé (compatibilité uniquement)",
-          "metronome_sensor": "Capteur métronome réseau (Smappee recommandé)",
-          "metronome_fallback_sensor": "Capteur de secours du métronome"
+          "metronome_fallback_sensor": "Puissance réseau signée de secours (optionnel)"
         }
       },
       "boiler": {
@@ -31,8 +28,8 @@
         }
       },
       "pri": {
-        "title": "FoxCat Energy – PRI SolarEdge",
-        "description": "Entrées RRCR dans l'ordre L1 à L4. Le code logique interne est L4 L3 L2 L1.",
+        "title": "FoxCat Energy – Onduleur",
+        "description": "Entrées RRCR de l’onduleur dans l’ordre L1 à L4. Le PRI reste le moteur interne; le menu utilisateur s’appelle Onduleur.",
         "data": {
           "pri_l1": "Relais PRI L1",
           "pri_l2": "Relais PRI L2",
@@ -118,37 +115,37 @@
     "step": {
       "init": {
         "title": "Reconfigurer FoxCat Energy",
-        "description": "Choisis la section à modifier. Les changements sont appliqués uniquement avec « Enregistrer et quitter ».",
+        "description": "Sections FoxCat Energy dans l’ordre officiel. Les changements sont appliqués uniquement avec « Enregistrer et quitter ».",
         "menu_options": {
-          "core": "Mesures principales",
-          "boiler": "Boiler",
-          "pri": "PRI SolarEdge",
+          "sources": "Sources énergétiques",
+          "energy": "Énergie",
+          "inverter": "Onduleur",
+          "ems": "EMS",
+          "energy_bus": "Energy Bus",
           "machines": "Machines",
-          "pricing": "Tarification dynamique",
-          "hphc": "Tarifs HP/HC",
-          "solar": "EMS 2 solaire",
+          "boiler": "Boiler",
+          "pricing": "Tarification",
+          "metronome": "Métronome",
+          "diagnostic": "Diagnostic",
           "finish": "Enregistrer et quitter"
         }
       },
       "core": {
-        "title": "Mesures principales",
-        "description": "Choisis les mesures principales ainsi que le capteur qui cadence le métronome interne. Le capteur de secours est utilisé automatiquement si le principal devient muet.",
+        "title": "Sources énergétiques",
+        "description": "FoxCat utilise la puissance réseau signée et la production PV comme deux sources obligatoires. Les autres grandeurs réseau/maison sont calculées en interne.",
         "data": {
           "installation_name": "Nom de l'installation",
+          "grid_signed_sensor": "Puissance réseau signée",
+          "grid_sign_convention": "Convention du signe réseau",
           "pv_sensor": "Production photovoltaïque",
-          "house_sensor": "Consommation réelle maison",
-          "grid_export_sensor": "Réinjection réseau (positive)",
-          "grid_import_sensor": "Prélèvement réseau (positif)",
-          "grid_legacy_sensor": "Ancien flux réseau signé (compatibilité uniquement)",
-          "metronome_sensor": "Capteur métronome réseau (Smappee recommandé)",
-          "metronome_fallback_sensor": "Capteur de secours du métronome"
+          "metronome_fallback_sensor": "Puissance réseau signée de secours (optionnel)"
         }
       },
       "boiler": {
         "title": "Boiler"
       },
       "pri": {
-        "title": "PRI SolarEdge"
+        "title": "Onduleur"
       },
       "machines": {
         "title": "EMS Machines – appareils extensibles",
@@ -161,7 +158,7 @@
         }
       },
       "pricing": {
-        "title": "Tarification dynamique"
+        "title": "Tarification"
       },
       "solar": {
         "title": "EMS 2 solaire"
@@ -217,6 +214,49 @@
         "data": {
           "machine_id": "Machine"
         }
+      },
+      "sources": {
+        "title": "Sources énergétiques",
+        "description": "FoxCat utilise la puissance réseau signée et la production PV comme deux sources obligatoires. Les autres grandeurs réseau/maison sont calculées en interne.",
+        "data": {
+          "installation_name": "Nom de l'installation",
+          "grid_signed_sensor": "Puissance réseau signée",
+          "grid_sign_convention": "Convention du signe réseau",
+          "pv_sensor": "Production photovoltaïque",
+          "metronome_fallback_sensor": "Puissance réseau signée de secours (optionnel)"
+        }
+      },
+      "energy": {
+        "title": "Énergie",
+        "description": "Grandeurs calculées par FoxCat : consommation maison, prélèvement, réinjection, autoconsommation et bilans. Aucun capteur supplémentaire n’est requis.",
+        "data": {}
+      },
+      "inverter": {
+        "title": "Onduleur",
+        "description": "Configuration physique RRCR et moteur PRI interne.",
+        "data": {}
+      },
+      "ems": {
+        "title": "EMS",
+        "description": "Modes, décisions et régulation souveraine FoxCat. Les réglages opérationnels sont exposés comme entités FoxCat.",
+        "data": {}
+      },
+      "energy_bus": {
+        "title": "Energy Bus",
+        "description": "Bus interne commun aux modules FoxCat. Il transporte les trames et intentions sans prendre de décision.",
+        "data": {}
+      },
+      "metronome": {
+        "title": "Métronome",
+        "description": "Le capteur réseau signé principal cadence FoxCat. Le capteur de secours doit fournir la même grandeur signée; lors d’un fallback, FoxCat bascule ensemble la cadence et la mesure réseau.",
+        "data": {
+          "metronome_fallback_sensor": "Puissance réseau signée de secours (optionnel)"
+        }
+      },
+      "diagnostic": {
+        "title": "Diagnostic",
+        "description": "État du registre FoxCat, validité des données, erreurs et outils de diagnostic.",
+        "data": {}
       }
     }
   }

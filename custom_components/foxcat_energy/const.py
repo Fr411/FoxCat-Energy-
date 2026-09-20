@@ -1,12 +1,44 @@
 from __future__ import annotations
 
 DOMAIN = "foxcat_energy"
-VERSION = "1.5.7"
+VERSION = "1.6.0"
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
+
+# Ordre fonctionnel officiel FoxCat Energy. Cet ordre est partagé par les
+# menus, le registre et les diagnostics et ne doit pas être réordonné.
+OFFICIAL_SECTION_ORDER = (
+    "Sources énergétiques",
+    "Énergie",
+    "Onduleur",
+    "EMS",
+    "Energy Bus",
+    "Machines",
+    "Boiler",
+    "Tarification",
+    "Métronome",
+    "Diagnostic",
+)
+OFFICIAL_MENU_STEPS = (
+    "sources",
+    "energy",
+    "inverter",
+    "ems",
+    "energy_bus",
+    "machines",
+    "boiler",
+    "pricing",
+    "metronome",
+    "diagnostic",
+    "finish",
+)
 
 # Configuration keys
 CONF_INSTALLATION_NAME = "installation_name"
 CONF_PV_SENSOR = "pv_sensor"
+CONF_GRID_SIGNED_SENSOR = "grid_signed_sensor"
+CONF_GRID_SIGN_CONVENTION = "grid_sign_convention"
+GRID_SIGN_IMPORT_POSITIVE = "import_positive"
+GRID_SIGN_EXPORT_POSITIVE = "export_positive"
 CONF_HOUSE_SENSOR = "house_sensor"
 CONF_GRID_EXPORT_SENSOR = "grid_export_sensor"
 CONF_GRID_IMPORT_SENSOR = "grid_import_sensor"
@@ -149,12 +181,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "mode": MODE_ECO,
     "boiler_enabled": True,
     "boiler_allow_hc": True,
-    "boiler_user_hold": False,
     "pri_enabled": True,
-    "hardware_inverter_brand": "SolarEdge",
-    "hardware_inverter_model": "SE4K",
-    "hardware_meter_brand": "Smappee",
-    "hardware_meter_model": "Infinity",
     "agressivite_ecs": False,
     "washer_enabled": True,
     "dryer_enabled": True,
@@ -287,8 +314,7 @@ SWITCH_DEFINITIONS = {
     "regulation_active": ("Régulation FoxCat active", "mdi:power"),
     "boiler_enabled": ("Boiler géré par FoxCat", "mdi:water-boiler"),
     "boiler_allow_hc": ("Boiler autorisé en heures creuses", "mdi:clock-check-outline"),
-    "boiler_user_hold": ("Boiler • Marche utilisateur maintenue", "mdi:hand-back-right-outline"),
-    "pri_enabled": ("PRI souverain — toujours actif", "mdi:solar-power-variant"),
+    "pri_enabled": ("Réduction de puissance onduleur", "mdi:solar-power-variant"),
     "agressivite_ecs": ("Agressivité ECS solaire", "mdi:water-boiler-auto"),
     "washer_enabled": ("Gestion lave-linge", "mdi:washing-machine"),
     "dryer_enabled": ("Gestion sèche-linge", "mdi:tumble-dryer"),
