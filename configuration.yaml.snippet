@@ -1,0 +1,12 @@
+# A fusionner UNE SEULE FOIS dans /config/configuration.yaml
+# Ne pas créer un second bloc "lovelace:" s'il existe déjà.
+
+lovelace:
+  mode: storage
+  dashboards:
+    foxcat-energy:
+      mode: yaml
+      title: FoxCat Energy
+      icon: mdi:cat
+      show_in_sidebar: true
+      filename: foxcat_energy/dashboard.yaml
