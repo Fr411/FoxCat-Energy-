@@ -52,6 +52,7 @@ from .const import (
     CONF_FORECAST_TOMORROW,
     CONF_GRID_EXPORT_SENSOR,
     CONF_GRID_IMPORT_SENSOR,
+    CONF_GRID_LEGACY_SENSOR,
     CONF_HOUSE_SENSOR,
     CONF_INSTALLATION_NAME,
     CONF_MACHINES_V13,
@@ -68,8 +69,6 @@ from .const import (
     CONF_TARIFF_HP_END_1,
     CONF_TARIFF_HP_START_2,
     CONF_TARIFF_HP_END_2,
-    CONF_TARIFF_HP_PRICE,
-    CONF_TARIFF_HC_PRICE,
     CONF_TARIFF_FIXED_INJECTION_PRICE,
     CONF_TARIFF_HP_PRICE_SENSOR,
     CONF_TARIFF_HC_PRICE_SENSOR,
@@ -116,6 +115,7 @@ from .engine.load_guard import (
 )
 from .engine.tariff import price_status, tariff_boundaries, tariff_period
 from .machines import MachineDefinition, machine_allowed, machine_definitions, schedule_boundaries
+from .machine_cycle import MachineCycleManager
 from .energy_bus import EnergyBus
 from .inverter_core import InverterCore
 from .accounting import EnergyAccounting
@@ -135,6 +135,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # FoxCat 1.5.0 : deux cœurs, communication immédiate par EnergyBus.
         self.energy_bus = EnergyBus()
         self.inverter_core = InverterCore()
+        self.machine_cycle_manager = MachineCycleManager()
         self.settings: dict[str, Any] = dict(DEFAULT_SETTINGS)
         self.core_state: dict[str, Any] = {
             "phase": PHASE_ACQUISITION,
@@ -328,9 +329,17 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Les changements réseau restent de la télémétrie immédiate.
         # consommation maison. Toute nouvelle trame import/export peut relancer
         # une correction d'une marche.
-        grid_entities = [eid for eid in [self.config.get(CONF_GRID_EXPORT_SENSOR), self.config.get(CONF_GRID_IMPORT_SENSOR)] if eid]
+        grid_entities = list(dict.fromkeys(
+            eid for eid in [
+                self.config.get(CONF_GRID_EXPORT_SENSOR),
+                self.config.get(CONF_GRID_IMPORT_SENSOR),
+                self.config.get(CONF_GRID_LEGACY_SENSOR),
+            ] if eid
+        ))
         if grid_entities:
-            self._unsubs.append(async_track_state_change_event(self.hass, grid_entities, self._on_grid_event))
+            self._unsubs.append(
+                async_track_state_change_event(self.hass, grid_entities, self._on_grid_event)
+            )
 
         machine_cycle_entities = [m.cycle_entity for m in self.machines if m.cycle_entity]
         safety_entities = [x for x in [self.config.get(CONF_BOILER_TEMP_SENSOR), self.config.get(CONF_BOILER_BINARY), self.config.get(CONF_BOILER_POWER_SENSOR), *machine_cycle_entities] if x]
@@ -400,11 +409,18 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         export_id = str(self.config.get(CONF_GRID_EXPORT_SENSOR) or "")
         legacy_id = str(self.config.get(CONF_GRID_LEGACY_SENSOR) or "")
 
-        # La trame de réinjection est l'horloge physique du EMS Onduleur.
-        # Le legacy signé est accepté comme source de trame si configuré.
-        if entity_id and entity_id in {export_id, legacy_id}:
-            self.hass.async_create_task(self.async_handle_inverter_grid_frame(entity_id))
+        # Une seule source est souveraine pour cadencer le EMS Onduleur.
+        # Priorité au capteur export séparé; le capteur signé historique sert
+        # uniquement de repli lorsqu'aucun capteur export n'est configuré.
+        inverter_clock = export_id or legacy_id
+
+        if entity_id and entity_id == inverter_clock:
+            self.hass.async_create_task(
+                self.async_handle_inverter_grid_frame(entity_id)
+            )
         else:
+            # Import/legacy secondaire : télémétrie immédiate pour le CORE,
+            # mais jamais une seconde décision RRCR sur la même trame physique.
             self.hass.async_create_task(self.async_handle_grid_change())
 
     @callback
@@ -527,7 +543,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         pmin = self._optional_float_state(self.config.get(CONF_PRICE_MIN_TODAY))
         pmax = self._optional_float_state(self.config.get(CONF_PRICE_MAX_TODAY))
         avg = self._optional_float_state(self.config.get(CONF_PRICE_AVG_TODAY))
-        regime = str(self.settings.get("tariff_regime", TARIFF_COMPENSATION))
+        regime = str(self.settings.get("tariff_regime", TARIFF_TOU))
         period = tariff_period(dt_util.now(), self.settings)
 
         fixed_injection_manual = float(self.settings.get(CONF_TARIFF_FIXED_INJECTION_PRICE, 0.0))
@@ -765,6 +781,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.pri_state["frame_id"] = frame_id
             self.pri_state["decision_tick_count"] = int(self.pri_state.get("decision_tick_count", 0)) + 1
             self.pri_state["frame_source"] = source_entity or "réseau"
+            self.pri_state["last_grid_frame_at"] = now
 
             if not snapshot.valid:
                 self.pri_state["guard_reason"] = "snapshot_invalide"
@@ -1229,7 +1246,24 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # HP/HC : HC favorable, HP défavorable.
         return str(prices.get("period")) == "HC"
 
+    def _refresh_machine_cycles(self) -> None:
+        now = dt_util.now()
+        for machine in self.machines:
+            power = self._optional_float_state(machine.power_sensor) or 0.0
+            external = bool(machine.cycle_entity and self._is_on(machine.cycle_entity))
+            self.machine_cycle_manager.update(
+                machine.machine_id, power, now,
+                start_w=machine.cycle_start_w,
+                start_confirm_s=machine.cycle_start_confirm_s,
+                duration_minutes=machine.cycle_duration_minutes,
+                margin_minutes=machine.cycle_margin_minutes,
+                end_w=machine.cycle_end_w,
+                end_confirm_minutes=machine.cycle_end_confirm_minutes,
+                external_cycle_on=external,
+            )
+
     def machine_states(self) -> list[dict[str, Any]]:
+        self._refresh_machine_cycles()
         now = dt_util.now()
         result: list[dict[str, Any]] = []
         for machine in self.machines:
@@ -1240,7 +1274,9 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "cycle_entity": machine.cycle_entity,
                 "power_sensor": machine.power_sensor,
                 "power_w": self._optional_float_state(machine.power_sensor),
-                "cycle_active": self._is_on(machine.cycle_entity),
+                "cycle_active": self.machine_cycle_manager.is_protected(machine.machine_id),
+                "foxcat_cycle_state": self.machine_cycle_manager.state_for(machine.machine_id).state,
+                "foxcat_cycle_origin": self.machine_cycle_manager.state_for(machine.machine_id).origin,
                 "automatic": bool(self.settings.get(machine.setting_key, machine.automatic_default)),
                 "sheddable": machine.sheddable,
                 "window_open": machine_allowed(machine, now),
@@ -1265,11 +1301,12 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Manuel = handover complet. FoxCat ne change aucune prise machine.
             return
         now = dt_util.now()
+        self._refresh_machine_cycles()
         for machine in self.machines:
             socket = machine.switch_entity
             if not socket:
                 continue
-            cycle_active = self._is_on(machine.cycle_entity)
+            cycle_active = self.machine_cycle_manager.is_protected(machine.machine_id)
             management = bool(self.settings.get(machine.setting_key, machine.automatic_default))
             allowed = machine_allowed(machine, now)
             # Règle souveraine : un cycle déjà commencé n'est jamais interrompu.
@@ -1760,6 +1797,7 @@ Cherche une fenêtre solaire exploitable avant la prochaine échéance énergét
             "core": dict(self.core_state),
             "pri": dict(self.pri_state),
             "energy_bus": self.energy_bus.view(),
+            "machine_cycles": self.machine_cycle_manager.snapshot(dt_util.now()),
             "solar": self.solar_forecast,
             "prices": self.prices(),
             "accounting": self.accounting.view(),
