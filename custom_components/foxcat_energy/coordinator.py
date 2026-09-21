@@ -162,6 +162,15 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "execution_command": "NONE",
             "execution_retries": 0,
             "execution_failure_reason": "",
+            "fsm_status": "OK",
+            "fsm_transition_count": 0,
+            "fsm_last_transition_at": None,
+            "fsm_last_transition": "INITIALISATION -> ACQUISITION",
+            "bus_message_id": None,
+            "last_frame_id": 0,
+            "last_frame_received_at": None,
+            "processed_frame_count": 0,
+            "last_bus_decision_id": None,
         }
         self.pri_state: dict[str, Any] = {
             "current_level": 100,
@@ -181,6 +190,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "last_reason": "PRI initialisé.",
             "frame_id": 0,
             "pending_frame_id": None,
+            "pending_frame_serial": None,
             "pending_level": None,
             "pending_pv_before": None,
             "solar_state": "PV_UNKNOWN",
@@ -192,6 +202,11 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "engine_run_count": 0,
             "decision_tick_count": 0,
             "last_decision_at": None,
+            "last_frame_received_at": None,
+            "processed_frame_count": 0,
+            "actuator_status": "IDLE",
+            "actuator_target_level": None,
+            "actuator_last_error": "",
         }
         # FoxCat 1.5.5 : horloge réseau synchronisée sur un capteur physique.
         # Le capteur Smappee choisi donne la phase; un capteur de secours peut
@@ -222,25 +237,40 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "period_s": float(self.settings.get("metronome_period_s", 30.0)),
             "next_due_at": None,
             "last_reason": "Métronome réseau en attente de synchronisation.",
+            "counter_date": dt_util.as_local(dt_util.now()).date().isoformat(),
+            "last_daily_reset_at": None,
+            "previous_day_pulse_count": 0,
+            "previous_day_primary_report_count": 0,
+            "previous_day_fallback_report_count": 0,
+            "previous_day_frame_count": 0,
+            "previous_day_message_count": 0,
         }
         self._metronome_lock = asyncio.Lock()
         self._metronome_pulse_lock = asyncio.Lock()
+        self._frame_dispatch_lock = asyncio.Lock()
         self._metronome_last_seen_report: dict[str, datetime] = {}
         self.solar_forecast = SolarForecast()
         self._unsubs: list[Any] = []
+        # V1.6.150 : les deux corps sont cadencés par la même publication réseau
+        # mais ne partagent plus aucun verrou d'exécution.
         self._core_lock = asyncio.Lock()
-        # 1.4.8 : la réduction puissance onduleur possède son propre verrou.
-        # Un boiler, une machine ou une attente du CORE ne peut donc jamais
-        # retarder le tick physique de 30 secondes.
         self._inverter_reduction_lock = asyncio.Lock()
-        self._action_lock = asyncio.Lock()
+        self._ems_action_lock = asyncio.Lock()
+        self._inverter_action_lock = asyncio.Lock()
         self._pri_task: asyncio.Task | None = None
+        self._pri_actuator_task: asyncio.Task | None = None
+        self._pri_requested: dict[str, Any] | None = None
+        self._boiler_command_task: asyncio.Task | None = None
         self._execution_task: asyncio.Task | None = None
         self._pv_below_since: datetime | None = None
         self._last_boiler_command_at: datetime | None = None
         self._high_load_since: datetime | None = None
         self._high_load_below_since: datetime | None = None
         self._frame_id = 0
+        # Compteur interne monotone : ne doit jamais être remis à zéro à minuit,
+        # car il protège la validation PRI N+1. _frame_id reste le numéro
+        # journalier visible par l’utilisateur.
+        self._frame_serial = 0
         self._high_load_high_frames = 0
         self._high_load_low_frames = 0
         self._sensor_reset_active = False
@@ -315,6 +345,10 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsubs.clear()
         if self._pri_task and not self._pri_task.done():
             self._pri_task.cancel()
+        if self._pri_actuator_task and not self._pri_actuator_task.done():
+            self._pri_actuator_task.cancel()
+        if self._boiler_command_task and not self._boiler_command_task.done():
+            self._boiler_command_task.cancel()
         if self._execution_task and not self._execution_task.done():
             self._execution_task.cancel()
         await self._async_save()
@@ -392,6 +426,19 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass,
                 self._on_metronome_watchdog,
                 timedelta(seconds=2),
+            )
+        )
+
+        # V1.6.1-101 : les compteurs visibles repartent chaque jour à zéro.
+        # Le reset est purement journalier/diagnostic : les séquences techniques
+        # internes utilisées pour les ACK N+1 restent monotones.
+        self._unsubs.append(
+            async_track_time_change(
+                self.hass,
+                self._on_daily_counter_reset,
+                hour=0,
+                minute=0,
+                second=0,
             )
         )
 
@@ -486,6 +533,48 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return (now - reported_at).total_seconds() <= timeout_s
 
     @callback
+    def _on_daily_counter_reset(self, now: datetime) -> None:
+        """Déclenche le reset journalier des compteurs visibles à minuit."""
+        self.hass.async_create_task(self._async_daily_counter_reset(now))
+
+    async def _async_daily_counter_reset(self, now: datetime) -> None:
+        """Réinitialise les séquences journalières sans casser les ACK internes."""
+        local_now = dt_util.as_local(now)
+        today = local_now.date().isoformat()
+        previous_date = str(self.metronome_state.get("counter_date") or "")
+        if previous_date == today:
+            return
+
+        previous_pulses = int(self.metronome_state.get("pulse_count", 0))
+        previous_primary = int(self.metronome_state.get("primary_report_count", 0))
+        previous_fallback = int(self.metronome_state.get("fallback_report_count", 0))
+        previous_frames = int(self._frame_id)
+        bus_summary = self.energy_bus.reset_daily_counters(local_now)
+
+        self.metronome_state.update({
+            "counter_date": today,
+            "last_daily_reset_at": local_now,
+            "previous_day_pulse_count": previous_pulses,
+            "previous_day_primary_report_count": previous_primary,
+            "previous_day_fallback_report_count": previous_fallback,
+            "previous_day_frame_count": previous_frames,
+            "previous_day_message_count": int(bus_summary.get("previous_day_message_count", 0)),
+            "pulse_count": 0,
+            "primary_report_count": 0,
+            "fallback_report_count": 0,
+            "last_reason": (
+                "Métronome : reset journalier à minuit — "
+                f"{previous_pulses} battement(s), {previous_frames} trame(s), "
+                f"{int(bus_summary.get('previous_day_message_count', 0))} message(s) archivés."
+            ),
+        })
+        self._frame_id = 0
+        self.pri_state["frame_id"] = 0
+        self.core_state["bus_message_id"] = None
+        self.async_set_updated_data(self._build_data())
+        await self._async_save()
+
+    @callback
     def _on_metronome_report(self, event: Event) -> None:
         """Capture un heartbeat du capteur principal ou de secours."""
         entity_id = str(event.data.get("entity_id", ""))
@@ -503,6 +592,17 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_metronome_watchdog(self, now: datetime) -> None:
         """Surveille la fraîcheur, détecte les republications et gère le fallback."""
+        local_today = dt_util.as_local(now).date().isoformat()
+        if str(self.metronome_state.get("counter_date") or "") != local_today:
+            await self._async_daily_counter_reset(now)
+
+        expired_frames = self.energy_bus.expire_frames(now=now, timeout_s=10.0)
+        if expired_frames:
+            self.metronome_state["last_reason"] = (
+                "Watchdog : trame(s) non clôturée(s) détectée(s) et marquée(s) TIMEOUT : "
+                + ", ".join(f"{fid}/{core}" for fid, core in expired_frames)
+            )
+
         primary = str(self.metronome_state.get("primary_entity") or "")
         fallback = str(self.metronome_state.get("fallback_entity") or "")
 
@@ -526,36 +626,39 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         primary_fresh = self._metronome_entity_fresh(primary, now, primary_timeout)
         fallback_fresh = self._metronome_entity_fresh(fallback, now, fallback_timeout)
 
-        last_pulse = self.metronome_state.get("last_pulse_at")
-        pulse_age = (now - last_pulse).total_seconds() if isinstance(last_pulse, datetime) else 1e9
-
         if not primary_fresh and fallback_fresh:
             self.metronome_state["status"] = "FALLBACK"
             self.metronome_state["source"] = "SECOURS"
-            self.metronome_state["last_reason"] = "Capteur principal muet : synchronisation sur le capteur de secours."
-            # Si le fallback ne change pas de valeur mais reste fraîchement
-            # publié, le métronome interne garantit quand même la cadence.
-            if pulse_age >= period:
-                await self._async_metronome_pulse(fallback, "fallback_interne", now)
+            self.metronome_state["last_reason"] = (
+                "Capteur principal muet : fallback armé. Seule une publication réelle "
+                "du capteur de secours déclenche une nouvelle trame."
+            )
             return
 
         if primary_fresh:
             self.metronome_state["status"] = "SYNCHRONISE"
             self.metronome_state["source"] = "PRINCIPAL"
-            if pulse_age >= period:
-                await self._async_metronome_pulse(primary, "principal_interne", now)
+            self.metronome_state["last_reason"] = (
+                "Source principale fraîche : Watchdog actif, aucune trame synthétique."
+            )
             return
 
         # Aucun capteur frais : on gèle les décisions plutôt que d'utiliser
         # aveuglément des données réseau anciennes.
         self.metronome_state["status"] = "PERDU"
         self.metronome_state["source"] = "AUCUNE"
-        self.metronome_state["last_reason"] = "Principal et secours périmés : cadence EMS/PRI gelée par sécurité."
+        self.metronome_state["last_reason"] = "Principal et secours périmés : aucune publication réseau, EMS/PRI gelés par sécurité."
         self.pri_state["guard_reason"] = "metronome_perdu"
         self.async_set_updated_data(self._build_data())
 
     async def _async_metronome_report(self, entity_id: str, reported_at: datetime, origin: str) -> None:
-        """Enregistre une publication et transforme le heartbeat en battement régulé."""
+        """Traite chaque publication physique comme une trame réseau souveraine.
+
+        V1.6.150 : aucune temporisation de 30 s n'est appliquée aux publications
+        réelles. Le métronome est un Watchdog de fraîcheur, pas une horloge de
+        décision. Une publication acceptée cadence simultanément EMS Core et
+        Onduleur Core sur le même snapshot.
+        """
         async with self._metronome_lock:
             previous = self._metronome_last_seen_report.get(entity_id)
             if previous is not None and reported_at <= previous:
@@ -582,59 +685,91 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             report_age = max((now - reported_at).total_seconds(), 0.0)
             if source == "principal" and report_age > primary_timeout:
-                self.metronome_state["last_reason"] = "Heartbeat principal trop ancien : attente du capteur de secours."
+                self.metronome_state["last_reason"] = "Publication principale trop ancienne : attente du fallback."
                 return
             if source == "secours" and report_age > fallback_timeout:
-                self.metronome_state["last_reason"] = "Heartbeat secours trop ancien : aucune synchronisation autorisée."
+                self.metronome_state["last_reason"] = "Publication fallback trop ancienne : trame rejetée."
                 return
 
             primary_fresh = self._metronome_entity_fresh(primary, now, primary_timeout)
             if source == "secours" and primary_fresh:
-                # Le fallback est chaud et prêt, mais ne cadence pas tant que le
-                # principal est sain. Cela évite tout double pas PRI.
-                self.metronome_state["last_reason"] = "Heartbeat secours reçu; principal toujours souverain."
+                self.metronome_state["last_reason"] = "Publication fallback reçue; principal toujours souverain."
                 self.async_set_updated_data(self._build_data())
                 return
 
-            last_pulse = self.metronome_state.get("last_pulse_at")
-            pulse_age = (now - last_pulse).total_seconds() if isinstance(last_pulse, datetime) else 1e9
-            # Fenêtre anti-double-pulse : une grappe de capteurs Smappee peut
-            # republier plusieurs états quasi simultanément.
-            if pulse_age < period:
-                return
-
-            await self._async_metronome_pulse(entity_id, f"{source}_{origin}", now)
+        # Le verrou métronome est libéré AVANT les deux corps. Le dispatch crée
+        # une seule photographie puis lance les deux moteurs indépendamment.
+        await self._async_metronome_pulse(entity_id, f"{source}_{origin}", now)
 
     async def _async_metronome_pulse(self, entity_id: str, source: str, pulse_at: datetime) -> None:
-        """Un battement = une acquisition CORE + une décision PRI au maximum."""
-        async with self._metronome_pulse_lock:
-            last_pulse = self.metronome_state.get("last_pulse_at")
-            period = max(float(self.settings.get("metronome_period_s", 30.0)), 10.0)
-            if isinstance(last_pulse, datetime) and (pulse_at - last_pulse).total_seconds() < period:
-                return
-
+        """Transforme une publication réseau en UNE trame partagée par les deux corps."""
+        async with self._frame_dispatch_lock:
             self.metronome_state.update({
                 "status": "FALLBACK" if "fallback" in source or "secours" in source else "SYNCHRONISE",
                 "source": "SECOURS" if "fallback" in source or "secours" in source else "PRINCIPAL",
                 "last_pulse_at": pulse_at,
                 "last_pulse_source": source,
                 "pulse_count": int(self.metronome_state.get("pulse_count", 0)) + 1,
-                "period_s": period,
-                "next_due_at": pulse_at + timedelta(seconds=period),
-                "last_reason": f"Battement réseau synchronisé sur {entity_id} ({source}).",
+                "period_s": float(self.settings.get("metronome_period_s", 30.0)),
+                "next_due_at": None,
+                "last_reason": f"Publication réseau {entity_id} ({source}) : trame immédiate.",
             })
 
-            # Laisser une très courte fenêtre à la grappe Smappee pour publier ses
-            # autres grandeurs de la même trame avant l'acquisition globale.
-            await asyncio.sleep(0.20)
-
-            # Même battement, deux cœurs indépendants : ne jamais remettre le
-            # PRI derrière _core_lock. Un boiler ou une machine ne peut donc pas
-            # retarder la marche RRCR suivante.
-            self.hass.async_create_task(
-                self.async_handle_inverter_grid_frame(f"metronome:{entity_id}:{source}")
+            # Une seule séquence de trame et un seul snapshot pour EMS + Onduleur.
+            self._frame_id += 1
+            self._frame_serial += 1
+            frame_id = self._frame_id
+            frame_serial = self._frame_serial
+            snapshot = self.snapshot()
+            self.energy_bus.on_grid_frame(
+                frame_id, pulse_at, source=entity_id, frame_serial=frame_serial,
+                grid_net_w=snapshot.grid_net_w, pv_w=snapshot.pv_w, house_w=snapshot.house_w,
+                import_w=snapshot.import_w, export_w=snapshot.export_w, valid=snapshot.valid,
+                boiler_power_w=snapshot.boiler_power_w, boiler_temp_c=snapshot.boiler_temp_c,
+                boiler_on=snapshot.boiler_on, machine_active=snapshot.machine_active,
+                mode=str(self.settings.get("mode")),
+                network_policy=str(self.settings.get("network_policy")),
             )
-            self.hass.async_create_task(self.async_handle_house_frame())
+
+        # Les deux tasks partent du même snapshot mais n'attendent jamais l'autre.
+        self.hass.async_create_task(
+            self._run_dispatched_core(
+                "ONDULEUR", frame_id,
+                self.async_handle_inverter_grid_frame(
+                    f"{entity_id}:{source}", snapshot=snapshot, frame_id=frame_id,
+                    frame_serial=frame_serial, frame_at=pulse_at,
+                ),
+            )
+        )
+        self.hass.async_create_task(
+            self._run_dispatched_core(
+                "EMS", frame_id,
+                self.async_handle_house_frame(
+                    snapshot=snapshot, frame_id=frame_id, frame_serial=frame_serial,
+                    frame_at=pulse_at, source_entity=f"{entity_id}:{source}",
+                ),
+            )
+        )
+
+    async def _run_dispatched_core(self, core: str, frame_id: int, task: Any) -> None:
+        """Garantit qu'une exception de moteur ne laisse jamais une trame PENDING."""
+        try:
+            await task
+        except asyncio.CancelledError:
+            self.energy_bus.mark_frame_core(
+                frame_id, core, "CANCELLED", now=dt_util.now(), reason="Task annulée."
+            )
+            raise
+        except Exception as err:  # pragma: no cover - garde runtime HA
+            _LOGGER.exception("FoxCat %s Core frame %s error: %s", core, frame_id, err)
+            self.energy_bus.mark_frame_core(
+                frame_id, core, "ERROR", now=dt_util.now(), reason=str(err)
+            )
+            if core == "EMS":
+                self.core_state["last_reason"] = f"EMS Core : erreur trame {frame_id} : {err}"
+            else:
+                self.pri_state["last_reason"] = f"Onduleur Core : erreur trame {frame_id} : {err}"
+            self.async_set_updated_data(self._build_data())
 
     @callback
     def _on_grid_event(self, event: Event) -> None:
@@ -649,7 +784,11 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # battement. La voie historique n'est utilisée que sans métronome.
         metronome_clock = str(self.metronome_state.get("primary_entity") or "")
         if not metronome_clock and entity_id and entity_id == inverter_clock:
-            self.hass.async_create_task(self.async_handle_inverter_grid_frame(entity_id))
+            # Compatibilité legacy : même sans métronome configuré, une
+            # publication réseau cadence désormais LES DEUX corps.
+            self.hass.async_create_task(
+                self._async_metronome_pulse(entity_id, "legacy_event", dt_util.now())
+            )
         else:
             self.hass.async_create_task(self.async_handle_grid_change())
 
@@ -900,15 +1039,29 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
 
+    def _set_core_phase(self, phase: str, reason: str = "") -> None:
+        valid = {PHASE_ACQUISITION, PHASE_DECISION, PHASE_WAIT_ACK}
+        previous = str(self.core_state.get("phase", PHASE_ACQUISITION))
+        if phase not in valid:
+            self.core_state["fsm_status"] = "ERREUR_PHASE"
+            phase = PHASE_ACQUISITION
+        if previous != phase:
+            self.core_state["fsm_transition_count"] = int(self.core_state.get("fsm_transition_count", 0)) + 1
+            self.core_state["fsm_last_transition_at"] = dt_util.now()
+            self.core_state["fsm_last_transition"] = f"{previous} -> {phase}"
+        self.core_state["phase"] = phase
+        self.core_state["fsm_status"] = "OK"
+        if reason:
+            self.core_state["last_reason"] = reason
+
     def reset_core(self, reason: str) -> None:
+        self._set_core_phase(PHASE_ACQUISITION, reason)
         self.core_state.update(
             {
-                "phase": PHASE_ACQUISITION,
                 "ack": ACK_IDLE,
                 "pending_action": "NONE",
                 "pending_delta": 0.0,
                 "ack_error": 0.0,
-                "last_reason": reason,
             }
         )
 
@@ -1035,9 +1188,10 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.async_set_updated_data(self._build_data())
             return
         ok = await self._apply_rrcr_level(level)
-        code = self._rrcr_code()
         expected = RRCR_LEVEL_TO_CODE[level]
-        if ok and code == expected:
+        confirmed = ok and await self._wait_rrcr_code(expected, timeout=5.0)
+        code = self._rrcr_code()
+        if confirmed and code == expected:
             self.pri_state.update({
                 "current_level": level,
                 "target_level": level,
@@ -1052,40 +1206,122 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.pri_state["last_reason"] = f"Échec commande manuelle PRI {level} % : code lu {code}, attendu {expected}."
         self.async_set_updated_data(self._build_data())
 
-    async def async_handle_inverter_grid_frame(self, source_entity: str = "") -> None:
-        """EMS Onduleur : exactement une décision par nouvelle trame réseau."""
-        async with self._inverter_reduction_lock:
-            snapshot = self.snapshot()
-            now = dt_util.now()
-            self._frame_id += 1
-            frame_id = self._frame_id
-            self.energy_bus.on_grid_frame(frame_id, now)
+    async def async_handle_inverter_grid_frame(
+        self,
+        source_entity: str = "",
+        *,
+        snapshot: EnergySnapshot | None = None,
+        frame_id: int | None = None,
+        frame_serial: int | None = None,
+        frame_at: datetime | None = None,
+    ) -> None:
+        """Onduleur Core : une décision immédiate pour chaque publication réseau.
 
+        La décision ne contient plus d'attente de commande physique : le moteur
+        RRCR possède son propre worker et converge vers la dernière consigne.
+        Ainsi aucune trame réseau ne reste derrière une commutation de relais.
+        """
+        if snapshot is None:
+            snapshot = self.snapshot()
+        now = frame_at or dt_util.now()
+        if frame_id is None or frame_serial is None:
+            # Voie legacy sans métronome : crée une trame autonome.
+            async with self._frame_dispatch_lock:
+                self._frame_id += 1
+                self._frame_serial += 1
+                frame_id = self._frame_id
+                frame_serial = self._frame_serial
+                self.energy_bus.on_grid_frame(
+                    frame_id, now, source=source_entity or "legacy", frame_serial=frame_serial,
+                    grid_net_w=snapshot.grid_net_w, pv_w=snapshot.pv_w, house_w=snapshot.house_w,
+                    import_w=snapshot.import_w, export_w=snapshot.export_w, valid=snapshot.valid,
+                    boiler_power_w=snapshot.boiler_power_w, boiler_temp_c=snapshot.boiler_temp_c,
+                    boiler_on=snapshot.boiler_on, machine_active=snapshot.machine_active,
+                    mode=str(self.settings.get("mode")),
+                    network_policy=str(self.settings.get("network_policy")),
+                )
+
+        async with self._inverter_reduction_lock:
+            # Le numéro de série courant suit la trame réellement traitée pour ACK N+1.
             self.pri_state["last_30s_tick"] = now
-            self.pri_state["frame_id"] = frame_id
+            self.pri_state["frame_id"] = int(frame_id)
             self.pri_state["decision_tick_count"] = int(self.pri_state.get("decision_tick_count", 0)) + 1
             self.pri_state["frame_source"] = source_entity or "réseau"
             self.pri_state["last_grid_frame_at"] = now
+            self.pri_state["last_frame_received_at"] = dt_util.now()
+            self.pri_state["processed_frame_count"] = int(self.pri_state.get("processed_frame_count", 0)) + 1
+
+            pending_bus_ids: list[int] = []
+            while (pending_bus := self.energy_bus.pending_for("ONDULEUR")) is not None:
+                pending_bus_ids.append(pending_bus.message_id)
+                self.energy_bus.acknowledge_pending(
+                    target="ONDULEUR", now=dt_util.now(), processed=False,
+                    reason=f"Message reçu sur trame {frame_id}.",
+                )
 
             if not snapshot.valid:
                 self.pri_state["guard_reason"] = "snapshot_invalide"
-                self.pri_state["last_reason"] = "Trame réseau reçue : snapshot énergétique invalide."
+                self.pri_state["last_reason"] = "Onduleur Core : trame reçue, snapshot énergétique invalide."
+                for pending_bus_id in pending_bus_ids:
+                    self.energy_bus.mark_nok(
+                        pending_bus_id, by="ONDULEUR", now=dt_util.now(),
+                        reason="Snapshot énergétique invalide.", busy=True,
+                    )
                 self.energy_bus.publish_inverter_state(
                     status="SNAPSHOT_INVALIDE", frame_id=frame_id, frame_at=now
+                )
+                self.energy_bus.mark_frame_core(
+                    frame_id, "ONDULEUR", "NOK", now=dt_util.now(),
+                    reason=self.pri_state["last_reason"],
                 )
                 self.async_set_updated_data(self._build_data(snapshot))
                 return
 
-            # N+1 : valider l'ordre précédent puis calculer obligatoirement la
-            # nouvelle décision sur CETTE trame.
-            await self._validate_pending_pri_on_frame(snapshot)
-            await self._run_pri_frame(snapshot)
-            self.pri_state["last_decision_at"] = now
+            # Validation N+1 puis nouvelle décision, toujours sur le snapshot de CETTE trame.
+            await self._validate_pending_pri_on_frame(snapshot, frame_serial=int(frame_serial))
+            pri_result = await self._run_pri_frame(
+                snapshot, frame_id=int(frame_id), frame_serial=int(frame_serial)
+            )
+
+            for pending_bus_id in pending_bus_ids:
+                if pri_result == "PROCESSED":
+                    self.energy_bus.mark_processed(
+                        pending_bus_id, by="ONDULEUR", now=dt_util.now(),
+                        reason=f"Message traité sur trame {frame_id}; décision PRI calculée.",
+                    )
+                else:
+                    self.energy_bus.mark_nok(
+                        pending_bus_id, by="ONDULEUR", now=dt_util.now(),
+                        reason=f"Message reçu mais non traitable : {pri_result}.", busy=True,
+                    )
+
+            # Le corps Onduleur annonce sa décision au corps EMS via Energy Bus.
+            self.energy_bus.publish_message(
+                source="ONDULEUR", target="EMS", action=f"PRI_{pri_result}", delta_w=0.0,
+                now=dt_util.now(), frame_id=int(frame_id),
+                current_level=self.pri_state.get("current_level"),
+                target_level=self.pri_state.get("target_level"),
+                direction=self.pri_state.get("direction"),
+                reason=self.pri_state.get("last_reason", ""),
+            )
+            self.energy_bus.mark_frame_core(
+                int(frame_id), "ONDULEUR", pri_result, now=dt_util.now(),
+                reason=str(self.pri_state.get("last_reason", "")),
+            )
+            self.pri_state["last_decision_at"] = dt_util.now()
             self.async_set_updated_data(self._build_data(snapshot))
 
 
-    async def async_handle_house_frame(self) -> None:
-        """Traite uniquement une trame énergétique complète et valide.
+    async def async_handle_house_frame(
+        self,
+        *,
+        snapshot: EnergySnapshot | None = None,
+        frame_id: int | None = None,
+        frame_serial: int | None = None,
+        frame_at: datetime | None = None,
+        source_entity: str = "",
+    ) -> None:
+        """EMS Core : traite la même trame/snapshot que le corps Onduleur.
 
         Les resets périodiques Smappee peuvent rendre brièvement les capteurs
         unknown/unavailable. Ces événements ne sont pas des trames EMS :
@@ -1099,7 +1335,21 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         exigée avant de reprendre les décisions énergétiques.
         """
         async with self._core_lock:
-            snapshot = self.snapshot()
+            if snapshot is None:
+                snapshot = self.snapshot()
+            now = frame_at or dt_util.now()
+            effective_frame_id = int(frame_id or self._frame_id)
+            self.core_state["last_frame_id"] = effective_frame_id
+            self.core_state["last_frame_received_at"] = dt_util.now()
+            self.core_state["processed_frame_count"] = int(self.core_state.get("processed_frame_count", 0)) + 1
+
+            pending_bus_ids: list[int] = []
+            while (pending_bus := self.energy_bus.pending_for("EMS")) is not None:
+                pending_bus_ids.append(pending_bus.message_id)
+                self.energy_bus.acknowledge_pending(
+                    target="EMS", now=dt_util.now(), processed=False,
+                    reason=f"Message reçu sur trame {effective_frame_id}.",
+                )
 
             if not snapshot.valid:
                 self._sensor_reset_active = True
@@ -1111,6 +1361,15 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.pri_state["last_reason"] = (
                     "Mesures transitoirement invalides : PRI conservé, "
                     "état PRI conservé, attente d'une trame complète."
+                )
+                for pending_bus_id in pending_bus_ids:
+                    self.energy_bus.mark_nok(
+                        pending_bus_id, by="EMS", now=dt_util.now(),
+                        reason="Snapshot énergétique invalide.", busy=True,
+                    )
+                self.energy_bus.mark_frame_core(
+                    effective_frame_id, "EMS", "NOK", now=dt_util.now(),
+                    reason=self.core_state["last_reason"],
                 )
                 self.async_set_updated_data(self._build_data(snapshot))
                 return
@@ -1125,6 +1384,20 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
                     self.pri_state["last_reason"] = (
                         "Reprise capteurs : stabilisation N0, PRI inchangé."
+                    )
+                    for pending_bus_id in pending_bus_ids:
+                        self.energy_bus.mark_processed(
+                            pending_bus_id, by="EMS", now=dt_util.now(),
+                            reason=f"Trame {effective_frame_id} utilisée comme stabilisation.",
+                        )
+                    self.energy_bus.publish_message(
+                        source="EMS", target="ONDULEUR", action="CORE_STABILISATION", delta_w=0.0,
+                        now=dt_util.now(), frame_id=effective_frame_id,
+                        reason=self.core_state["last_reason"],
+                    )
+                    self.energy_bus.mark_frame_core(
+                        effective_frame_id, "EMS", "STABILISATION", now=dt_util.now(),
+                        reason=self.core_state["last_reason"],
                     )
                     self.async_set_updated_data(self._build_data(snapshot))
                     return
@@ -1146,18 +1419,37 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass.async_create_task(self._async_save())
 
             if bool(self.settings.get("regulation_active")):
-                # CORE EMS uniquement. La réduction puissance onduleur possède
-                # depuis 1.4.8 sa propre boucle 30 s indépendante.
+                # CORE EMS uniquement. Le corps Onduleur traite le même snapshot
+                # dans une task indépendante déclenchée par la même publication.
                 await self._evaluate_high_load(snapshot)
                 await self._core_process_frame(snapshot)
             else:
                 self.core_state["last_reason"] = "Régulation inactive : télémétrie seulement."
                 self.pri_state["guard_reason"] = "regulation_inactive"
 
+            # Le corps EMS accuse le message reçu puis publie sa propre décision.
+            for pending_bus_id in pending_bus_ids:
+                self.energy_bus.mark_processed(
+                    pending_bus_id, by="EMS", now=dt_util.now(),
+                    reason=f"Décision EMS traitée sur trame {effective_frame_id}.",
+                )
+            decision_id = self.energy_bus.publish_message(
+                source="EMS", target="ONDULEUR", action="CORE_DECISION", delta_w=0.0,
+                now=dt_util.now(), frame_id=effective_frame_id,
+                phase=self.core_state.get("phase"),
+                pending_action=self.core_state.get("pending_action"),
+                ack=self.core_state.get("ack"),
+                reason=self.core_state.get("last_reason", ""),
+            )
+            self.core_state["last_bus_decision_id"] = decision_id
+            self.energy_bus.mark_frame_core(
+                effective_frame_id, "EMS", "PROCESSED", now=dt_util.now(),
+                reason=str(self.core_state.get("last_reason", "")),
+            )
             self.async_set_updated_data(self._build_data(snapshot))
 
     async def async_handle_grid_change(self) -> None:
-        """Télémétrie uniquement. Depuis 1.4.4, l’horloge 30 s est souveraine pour le CORE/PRI."""
+        """Télémétrie secondaire; la publication réseau souveraine déclenche les deux corps."""
         self.async_set_updated_data(self._build_data())
 
     async def _core_process_frame(self, snapshot: EnergySnapshot) -> None:
@@ -1202,7 +1494,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         phase = self.core_state["phase"]
         if phase == PHASE_ACQUISITION:
             self.core_state["t0"] = snapshot
-            self.core_state["phase"] = PHASE_DECISION
+            self._set_core_phase(PHASE_DECISION)
             self.core_state["ack"] = ACK_IDLE
             self.core_state["last_reason"] = (
                 f"ACQUISITION : réseau={snapshot.grid_net_w:.0f} W "
@@ -1212,9 +1504,14 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         if phase == PHASE_WAIT_ACK:
+            if str(self.core_state.get("execution_status")) in {"QUEUED", "EXECUTION"}:
+                self.core_state["last_reason"] = (
+                    "WAIT_ACK : commande physique en cours hors trame; nouvelle trame enregistrée sans blocage."
+                )
+                return
             self._validate_core_ack(snapshot)
             self.core_state["t0"] = snapshot
-            self.core_state["phase"] = PHASE_ACQUISITION
+            self._set_core_phase(PHASE_ACQUISITION)
             self.core_state["pending_action"] = "NONE"
             self.core_state["pending_delta"] = 0.0
             return
@@ -1318,6 +1615,25 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             f"attendu={expected:.0f} W, réel={snapshot.grid_net_w:.0f} W, erreur={error:.0f} W."
         )
 
+    async def _async_ems_service_call(
+        self, domain: str, service: str, data: dict[str, Any], *, timeout: float = 3.0
+    ) -> bool:
+        """Appel Home Assistant borné : EMS Core ne peut jamais rester bloqué indéfiniment."""
+        try:
+            await asyncio.wait_for(
+                self.hass.services.async_call(domain, service, data, blocking=True),
+                timeout=max(float(timeout), 0.5),
+            )
+            return True
+        except asyncio.TimeoutError:
+            self.core_state["execution_status"] = "TIMEOUT"
+            self.core_state["execution_failure_reason"] = f"Timeout {domain}.{service} après {timeout:.1f} s."
+            return False
+        except Exception as err:  # pragma: no cover
+            self.core_state["execution_status"] = "FAILED"
+            self.core_state["execution_failure_reason"] = f"{domain}.{service}: {err}"
+            return False
+
     async def async_command_boiler(self, action: str, reason: str, origin: str) -> None:
         if not bool(self.settings.get("regulation_active")):
             return
@@ -1334,14 +1650,17 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Communication immédiate vers EMS Onduleur. Le second cœur n'exécute
         # sa réponse physique qu'à la prochaine trame réseau.
         delta_bus = -power if action == BOILER_STOP else float(self.settings["boiler_power_w"])
-        self.energy_bus.publish_ems_intent(
+        bus_message_id = self.energy_bus.publish_ems_intent(
             source="boiler",
+            target="ONDULEUR",
             action=action,
             delta_w=delta_bus,
             now=dt_util.now(),
+            frame_id=self._frame_id,
             origin=origin,
             reason=reason,
         )
+        self.core_state["bus_message_id"] = bus_message_id
         if action == BOILER_STOP:
             expected = reference + power
             pending = "BOILER_OFF_STRATEGY"
@@ -1374,25 +1693,56 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "boiler_origin": origin,
                 "last_reason": reason,
                 "execution_command": pending,
-                "execution_status": "EXECUTION",
+                "execution_status": "QUEUED",
                 "execution_retries": 0,
                 "execution_failure_reason": "",
             }
         )
 
-        async with self._action_lock:
-            if action == BOILER_STOP:
-                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate, "hvac_mode": "off"}, blocking=True)
-            else:
-                target = float(self.settings["boiler_temp_normal_c"] if action == BOILER_HEAT_45 else self.settings["boiler_temp_boost_c"])
-                await self.hass.services.async_call("climate", "set_temperature", {"entity_id": climate, "temperature": target}, blocking=True)
-                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate, "hvac_mode": "heat"}, blocking=True)
+        # La commande physique ne vit jamais dans la task de trame EMS.
+        # Une sécurité plus récente peut préempter une ancienne commande.
+        if self._boiler_command_task and not self._boiler_command_task.done():
+            self._boiler_command_task.cancel()
+        self._boiler_command_task = self.hass.async_create_task(
+            self._execute_boiler_command(action, pending, climate)
+        )
 
-        self._last_boiler_command_at = dt_util.now()
+    async def _execute_boiler_command(self, action: str, pending: str, climate: str) -> None:
+        """Worker physique Boiler indépendant du cadenceur EMS."""
+        try:
+            self.core_state["execution_status"] = "EXECUTION"
+            async with self._ems_action_lock:
+                if action == BOILER_STOP:
+                    ok = await self._async_ems_service_call(
+                        "climate", "set_hvac_mode", {"entity_id": climate, "hvac_mode": "off"}
+                    )
+                else:
+                    target = float(self.settings["boiler_temp_normal_c"] if action == BOILER_HEAT_45 else self.settings["boiler_temp_boost_c"])
+                    ok = await self._async_ems_service_call(
+                        "climate", "set_temperature", {"entity_id": climate, "temperature": target}
+                    )
+                    if ok:
+                        ok = await self._async_ems_service_call(
+                            "climate", "set_hvac_mode", {"entity_id": climate, "hvac_mode": "heat"}
+                        )
+            if not ok:
+                self.energy_bus.publish_message(
+                    source="EMS", target="ONDULEUR", action="BOILER_COMMAND_TIMEOUT", delta_w=0.0,
+                    now=dt_util.now(), frame_id=self._frame_id,
+                    reason=self.core_state.get("execution_failure_reason", "Commande boiler non exécutée."),
+                )
+                self.async_set_updated_data(self._build_data())
+                return
 
-        if self._execution_task and not self._execution_task.done():
-            self._execution_task.cancel()
-        self._execution_task = self.hass.async_create_task(self._verify_boiler_execution(pending))
+            self._last_boiler_command_at = dt_util.now()
+            self.core_state["execution_status"] = "SENT"
+            if self._execution_task and not self._execution_task.done():
+                self._execution_task.cancel()
+            self._execution_task = self.hass.async_create_task(self._verify_boiler_execution(pending))
+            self.async_set_updated_data(self._build_data())
+        except asyncio.CancelledError:
+            self.core_state["execution_status"] = "CANCELLED"
+            raise
 
     async def _verify_boiler_execution(self, command: str) -> None:
         try:
@@ -1456,14 +1806,20 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         climate = self.config.get(CONF_BOILER_CLIMATE)
         if not climate:
             return
-        async with self._action_lock:
+        async with self._ems_action_lock:
             if command.startswith("BOILER_OFF") or command == "ECS_MODULE_OFF":
-                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate, "hvac_mode": "off"}, blocking=True)
+                await self._async_ems_service_call(
+                    "climate", "set_hvac_mode", {"entity_id": climate, "hvac_mode": "off"}
+                )
             else:
                 boost = command in {"ECS_MODULE_ON_65", "ECS_MODULE_UPGRADE_65", "ECS_MODULE_SET_65"}
                 temp = float(self.settings["boiler_temp_boost_c"] if boost else self.settings["boiler_temp_normal_c"])
-                await self.hass.services.async_call("climate", "set_temperature", {"entity_id": climate, "temperature": temp}, blocking=True)
-                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate, "hvac_mode": "heat"}, blocking=True)
+                if await self._async_ems_service_call(
+                    "climate", "set_temperature", {"entity_id": climate, "temperature": temp}
+                ):
+                    await self._async_ems_service_call(
+                        "climate", "set_hvac_mode", {"entity_id": climate, "hvac_mode": "heat"}
+                    )
 
     async def async_handle_safety_change(self) -> None:
         snap = self.snapshot()
@@ -1608,7 +1964,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.warning("FoxCat machine socket command failed for %s (%s): %s", machine.name, socket, err)
 
     async def _evaluate_high_load(self, snapshot: EnergySnapshot) -> None:
-        """Délestage synchronisé sur la trame maison (30 s).
+        """Délestage synchronisé sur chaque publication réseau.
 
         2 trames hautes consécutives déclenchent. 5 trames basses réarment.
         Une mesure maison invalide gèle l'état et n'est jamais assimilée à 0 W.
@@ -1657,8 +2013,17 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if self._pri_task and not self._pri_task.done():
             self._pri_task.cancel()
-        # En forte demande, aucune raison de brider le photovoltaïque.
-        await self.async_release_pri_100("Délestage haute consommation : onduleur libéré à 100 %.")
+        # En forte demande, EMS informe Onduleur Core via Energy Bus et pousse
+        # une cible 100 % au worker physique sans bloquer la trame EMS.
+        self.energy_bus.publish_message(
+            source="EMS", target="ONDULEUR", action="DELESTAGE_LIBERATION_100", delta_w=0.0,
+            now=dt_util.now(), frame_id=self._frame_id,
+            reason="Délestage haute consommation : libération onduleur demandée.",
+        )
+        self._queue_pri_target(
+            100, frame_id=self._frame_id, frame_serial=self._frame_serial,
+            pv_before=snapshot.pv_w, reason="Délestage haute consommation.",
+        )
 
         if snapshot.boiler_on:
             await self.async_command_boiler(
@@ -1680,7 +2045,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # stable avec la mesure courante puis on évalue la stratégie.
             self.reset_core("Nouvelle trame tarifaire dynamique : réévaluation immédiate.")
             self.core_state["t0"] = snap
-            self.core_state["phase"] = PHASE_DECISION
+            self._set_core_phase(PHASE_DECISION)
             await self._core_process_frame(snap)
             self._maybe_start_pri(snap)
         self.async_set_updated_data(self._build_data(snap))
@@ -1720,10 +2085,27 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._pv_below_since = None
 
     async def _watchdog(self) -> None:
+        now = dt_util.now()
+        valid_phases = {PHASE_ACQUISITION, PHASE_DECISION, PHASE_WAIT_ACK}
+        if self.core_state.get("phase") not in valid_phases:
+            self.core_state["fsm_status"] = "ERREUR_PHASE"
+            self.reset_core("Watchdog : phase EMS invalide, machine à états réinitialisée.")
+        else:
+            self.core_state["fsm_status"] = "OK"
+
+        bus_timeout = max(float(self.settings.get("metronome_period_s", 30.0)) * 1.5, 45.0)
+        expired = self.energy_bus.expire_pending(now=now, timeout_s=bus_timeout)
+        if expired:
+            self.core_state["last_reason"] = (
+                "Energy Bus : ACK inter-corps expiré pour message(s) "
+                + ", ".join(str(item) for item in expired)
+                + "."
+            )
+
         last = self.core_state.get("last_frame")
         if not isinstance(last, datetime):
             return
-        age = (dt_util.now() - last).total_seconds()
+        age = (now - last).total_seconds()
         if age > float(self.settings["watchdog_timeout_s"]):
             if self.core_state.get("phase") != PHASE_ACQUISITION:
                 self.reset_core(f"Watchdog : aucune nouvelle trame depuis {age:.0f} s, machine d'états réinitialisée.")
@@ -1773,15 +2155,28 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return RRCR_CODE_TO_LEVEL.get(self._rrcr_code(), -1)
 
     async def _apply_rrcr_level(self, level: int) -> bool:
+        """Envoie une commande RRCR sans jamais bloquer Onduleur Core."""
         code = RRCR_LEVEL_TO_CODE.get(int(level))
         if code is None:
             return False
         entities = [self.config.get(CONF_PRI_L4), self.config.get(CONF_PRI_L3), self.config.get(CONF_PRI_L2), self.config.get(CONF_PRI_L1)]
         if not all(entities):
             return False
-        async with self._action_lock:
+        async with self._inverter_action_lock:
             for entity_id, bit in zip(entities, code, strict=True):
-                await self.hass.services.async_call("switch", "turn_on" if bit == "1" else "turn_off", {"entity_id": entity_id}, blocking=True)
+                try:
+                    # blocking=False : la décision PRI ne dépend jamais d'une réponse
+                    # de service Home Assistant. L'état réel est contrôlé ensuite.
+                    await asyncio.wait_for(
+                        self.hass.services.async_call(
+                            "switch", "turn_on" if bit == "1" else "turn_off",
+                            {"entity_id": entity_id}, blocking=False,
+                        ),
+                        timeout=2.0,
+                    )
+                except asyncio.TimeoutError:
+                    self.pri_state["actuator_last_error"] = f"Timeout service RRCR {entity_id}."
+                    return False
         return True
 
     async def _wait_rrcr_code(self, code: str, timeout: float = 5.0) -> bool:
@@ -1792,13 +2187,108 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await asyncio.sleep(0.25)
         return self._rrcr_code() == code
 
+    def _queue_pri_target(
+        self,
+        level: int,
+        *,
+        frame_id: int,
+        frame_serial: int,
+        pv_before: float,
+        reason: str,
+    ) -> None:
+        """Mémorise uniquement la dernière consigne physique demandée.
+
+        Toutes les trames sont calculées immédiatement. Le worker RRCR ne crée
+        donc jamais une file de vieilles trames : il converge vers la consigne
+        issue de la publication la plus récente.
+        """
+        self._pri_requested = {
+            "level": int(level),
+            "frame_id": int(frame_id),
+            "frame_serial": int(frame_serial),
+            "pv_before": float(pv_before),
+            "reason": str(reason),
+            "requested_at": dt_util.now(),
+        }
+        self.pri_state["actuator_target_level"] = int(level)
+        self.pri_state["actuator_status"] = "QUEUED"
+        if self._pri_actuator_task is None or self._pri_actuator_task.done():
+            self._pri_actuator_task = self.hass.async_create_task(self._pri_actuator_loop())
+
+    async def _pri_actuator_loop(self) -> None:
+        """Applique la dernière consigne RRCR avec timeout et sans bloquer les trames."""
+        try:
+            while self._pri_requested is not None:
+                request = self._pri_requested
+                self._pri_requested = None
+                target = int(request["level"])
+                current = self._rrcr_level()
+                self.pri_state["actuator_status"] = "EXECUTION"
+                self.pri_state["actuator_target_level"] = target
+                self.pri_state["actuator_last_error"] = ""
+
+                if current == target:
+                    self.pri_state["actuator_status"] = "OK"
+                    continue
+
+                try:
+                    sent = await asyncio.wait_for(self._apply_rrcr_level(target), timeout=4.0)
+                except asyncio.TimeoutError:
+                    sent = False
+                    self.pri_state["actuator_last_error"] = f"Timeout global commande RRCR {target} %."
+
+                # Si une trame plus récente a changé la cible pendant l'envoi,
+                # on ne perd pas de temps à valider une consigne déjà obsolète.
+                if self._pri_requested is not None and int(self._pri_requested.get("level", target)) != target:
+                    self.pri_state["actuator_status"] = "SUPERSEDED"
+                    continue
+
+                confirmed = sent and await self._wait_rrcr_code(RRCR_LEVEL_TO_CODE[target], timeout=5.0)
+                if not confirmed:
+                    self.pri_state["ack_rrcr"] = "FAILED"
+                    self.pri_state["actuator_status"] = "FAILED"
+                    if not self.pri_state.get("actuator_last_error"):
+                        self.pri_state["actuator_last_error"] = f"RRCR {target} % non confirmé avant timeout."
+                    # Pas de rollback bloquant : la prochaine publication reste
+                    # souveraine et peut immédiatement demander une autre cible.
+                    continue
+
+                # Si plusieurs trames ont demandé la même cible pendant la
+                # commutation, rattacher l'ACK physique à la plus récente.
+                if self._pri_requested is not None and int(self._pri_requested.get("level", -1)) == target:
+                    request = self._pri_requested
+                    self._pri_requested = None
+
+                self.pri_state.update({
+                    "current_level": target,
+                    "ack_rrcr": "PENDING",
+                    "ack_inverter": "PENDING",
+                    "ack_grid": "PENDING",
+                    "pending_level": target,
+                    "pending_frame_id": int(request["frame_id"]),
+                    "pending_frame_serial": int(request["frame_serial"]),
+                    "pending_pv_before": float(request["pv_before"]),
+                    "actuator_status": "OK",
+                })
+                self.async_set_updated_data(self._build_data())
+        except asyncio.CancelledError:
+            self.pri_state["actuator_status"] = "CANCELLED"
+            raise
+        except Exception as err:  # pragma: no cover - defensive HA runtime
+            _LOGGER.exception("FoxCat PRI actuator error: %s", err)
+            self.pri_state["actuator_status"] = "FAILED"
+            self.pri_state["actuator_last_error"] = str(err)
+
     async def async_release_pri_100(self, reason: str) -> None:
         entities = [self.config.get(CONF_PRI_L1), self.config.get(CONF_PRI_L2), self.config.get(CONF_PRI_L3), self.config.get(CONF_PRI_L4)]
         if not all(entities):
             self.pri_state.update({"current_level": 100, "target_level": 100, "code": "0000", "last_reason": f"{reason} Relais PRI non configurés."})
             return
         try:
-            await self._apply_rrcr_level(100)
+            sent = await self._apply_rrcr_level(100)
+            confirmed = sent and await self._wait_rrcr_code(RRCR_LEVEL_TO_CODE[100], timeout=5.0)
+            if not confirmed:
+                raise RuntimeError(f"RRCR 100 % non confirmé (code={self._rrcr_code()}).")
             self.pri_state.update({"current_level": 100, "target_level": 100, "code": "0000", "direction": "maintien", "last_reason": reason, "ack_rrcr": "OK"})
         except Exception as err:  # pragma: no cover
             _LOGGER.warning("Unable to release PRI to 100%%: %s", err)
@@ -1825,12 +2315,14 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.pri_state.update({"solar_state":state,"solar_potential_min_w":potential,
                                "pv_limit_w":limit,"pv_limit_error_w":err})
 
-    async def _validate_pending_pri_on_frame(self, snapshot: EnergySnapshot) -> None:
+    async def _validate_pending_pri_on_frame(self, snapshot: EnergySnapshot, *, frame_serial: int | None = None) -> None:
         if not snapshot.valid:
             return
         pending=self.pri_state.get("pending_level")
         pending_frame=self.pri_state.get("pending_frame_id")
-        if pending is None or pending_frame is None or self._frame_id <= int(pending_frame):
+        pending_serial=self.pri_state.get("pending_frame_serial")
+        current_serial = int(frame_serial if frame_serial is not None else self._frame_serial)
+        if pending is None or pending_frame is None or pending_serial is None or current_serial <= int(pending_serial):
             return
         level=self._rrcr_level()
         if level != int(pending):
@@ -1843,27 +2335,30 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.pri_state["ack_grid"]=self._classify_pri_grid(snapshot)
         self.pri_state["pending_level"]=None
         self.pri_state["pending_frame_id"]=None
+        self.pri_state["pending_frame_serial"]=None
         self.pri_state["pending_pv_before"]=None
 
-    async def _run_pri_frame(self, snapshot: EnergySnapshot) -> None:
-        """EMS Onduleur 1.5.5 : une décision prédictive par trame réseau."""
+    async def _run_pri_frame(
+        self, snapshot: EnergySnapshot, *, frame_id: int | None = None, frame_serial: int | None = None
+    ) -> str:
+        """Onduleur Core 1.6.150 : décision immédiate, action RRCR asynchrone."""
         self.pri_state["last_engine_run"] = dt_util.now()
         self.pri_state["engine_run_count"] = int(self.pri_state.get("engine_run_count", 0)) + 1
 
         if not snapshot.valid:
             self.pri_state["last_reason"] = "EMS Onduleur : snapshot énergétique incomplet."
-            return
+            return "SNAPSHOT_INVALIDE"
         if not self._pri_guard():
             self.pri_state["last_reason"] = (
                 "EMS Onduleur non exécuté : "
                 f"{self.pri_state.get('guard_reason', 'raison inconnue')}."
             )
-            return
+            return "GARDE_PRI_ACTIVE"
 
         current = self._rrcr_level()
         if current < 0:
             self.pri_state.update({"ack_rrcr":"FAILED","last_reason":"EMS Onduleur : code RRCR inconnu."})
-            return
+            return "RRCR_INCONNU"
 
         self._update_pri_pv_comparator(snapshot, current)
         policy = str(self.settings.get("network_policy", NETWORK_POLICY_COMPENSATION))
@@ -1898,7 +2393,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         })
         self.energy_bus.publish_inverter_state(
             status=decision.action,
-            frame_id=self._frame_id,
+            frame_id=int(frame_id if frame_id is not None else self._frame_id),
             frame_at=dt_util.now(),
             current_level=current,
             target_level=target,
@@ -1919,28 +2414,28 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             reason=decision.reason,
         )
 
+        effective_frame_id = int(frame_id if frame_id is not None else self._frame_id)
+        effective_serial = int(frame_serial if frame_serial is not None else self._frame_serial)
+
         if target == current:
+            # Une cible physique précédente devenue obsolète est remplacée par
+            # le maintien demandé par la trame la plus récente.
+            if self._pri_requested is not None and int(self._pri_requested.get("level", current)) != current:
+                self._queue_pri_target(
+                    current, frame_id=effective_frame_id, frame_serial=effective_serial,
+                    pv_before=snapshot.pv_w, reason="Nouvelle trame : maintien prioritaire.",
+                )
             self.pri_state["ack_grid"] = self._classify_pri_grid(snapshot)
-            return
+            return "PROCESSED"
 
-        target_code = RRCR_LEVEL_TO_CODE[target]
-        await self._apply_rrcr_level(target)
-        if not await self._wait_rrcr_code(target_code):
-            self.pri_state["ack_rrcr"] = "FAILED"
-            self.pri_state["last_reason"] = (
-                f"EMS Onduleur : RRCR {target}% non confirmé, retour {current}%."
-            )
-            await self._apply_rrcr_level(current)
-            return
-
-        self.pri_state.update({
-            "ack_rrcr":"PENDING",
-            "ack_inverter":"PENDING",
-            "ack_grid":"PENDING",
-            "pending_level":target,
-            "pending_frame_id":self._frame_id,
-            "pending_pv_before":snapshot.pv_w,
-        })
+        # La décision de CETTE trame est terminée ici. La commande physique est
+        # confiée au worker RRCR et ne retarde jamais les publications suivantes.
+        self.pri_state.update({"ack_rrcr": "QUEUED", "ack_inverter": "PENDING", "ack_grid": "PENDING"})
+        self._queue_pri_target(
+            target, frame_id=effective_frame_id, frame_serial=effective_serial,
+            pv_before=snapshot.pv_w, reason=decision.reason,
+        )
+        return "PROCESSED"
 
 
     async def async_reset_cycle(self) -> None:
