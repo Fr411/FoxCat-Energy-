@@ -142,7 +142,11 @@ class InverterCore:
         # supérieur est inconnu : on suppose qu'un palier supérieur peut remplir
         # son plafond. C'est sûr côté réseau car le plafond calculé reste dérivé
         # de la consommation maison et de l'import cible.
-        solar_is_capped = pv_at_limit or current == 0
+        # V1.6.150 : un import hors enveloppe autorise aussi une libération
+        # immédiate du plafond PRI. Relever un plafond ne crée pas de solaire ;
+        # si du potentiel existe il est récupéré, sinon la production reste
+        # inchangée et la publication réseau suivante réévalue la situation.
+        solar_is_capped = pv_at_limit or current == 0 or import_w > import_high
 
         candidates: list[tuple[float, int, float, float, float]] = []
         for level in range(0, 101, 10):

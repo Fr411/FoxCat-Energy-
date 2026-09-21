@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 DOMAIN = "foxcat_energy"
-VERSION = "1.6.0"
+VERSION = "1.6.150"
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
 
 # Ordre fonctionnel officiel FoxCat Energy. Cet ordre est partagé par les
@@ -263,7 +263,7 @@ NUMBER_DEFINITIONS = {
     "ack_tolerance_w": ("Tolérance ACK", 50, 3000, 50, "W", "mdi:check-decagram-outline"),
     "stability_tolerance_w": ("Tolérance stabilité T0/T1", 50, 3000, 50, "W", "mdi:chart-bell-curve-cumulative"),
     "watchdog_timeout_s": ("Délai watchdog trame", 30, 600, 10, "s", "mdi:timer-alert-outline"),
-    "metronome_period_s": ("Période métronome réseau", 10, 120, 5, "s", "mdi:metronome"),
+    "metronome_period_s": ("Fenêtre Watchdog réseau", 10, 120, 5, "s", "mdi:metronome"),
     "metronome_primary_timeout_s": ("Délai perte métronome principal", 15, 180, 5, "s", "mdi:timer-alert-outline"),
     "metronome_fallback_timeout_s": ("Délai perte capteur de secours", 30, 300, 5, "s", "mdi:timer-off-outline"),
     "inverter_power_w": ("Puissance nominale onduleur", 500, 30000, 100, "W", "mdi:solar-power"),
