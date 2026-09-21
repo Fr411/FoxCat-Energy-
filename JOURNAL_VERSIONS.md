@@ -1,3 +1,13 @@
+# FoxCat Energy 1.6.151 — Correctif PRI et commandes utilisateur
+
+- Correction `_classify_pri_grid` manquant.
+- Commandes utilisateur dynamiques pour toutes les machines.
+- Override Boiler utilisateur marche / arrêt / automatique.
+- Cycle machine utilisateur protégé.
+- 0 fonction supprimée par rapport à 1.6.150.
+
+---
+
 # FoxCat Energy 1.6.150 — Cadencement réseau souverain et cœurs indépendants
 
 ## Objectif
@@ -104,3 +114,15 @@ Les fonctions historiques de 1.6.1-101 sont conservées. La voie legacy sans cap
 - EMS CORE ↔ EnergyBus ↔ EMS Onduleur.
 - Compensation / Injection facturée.
 - Comparateur PV/plafond et comptabilité HP/HC par appareil.
+## 1.6.152 — Collecte machines et dashboard natif
+
+- Ajout d’un collecteur passif local des signatures électriques des machines.
+- Ajout des capteurs courant/tension optionnels par machine.
+- Publication du contexte cycle machine dans Energy Bus sans influence sur le PRI/EMS.
+- Correction du conflit `origin` Energy Bus.
+- Migration des KPI journaliers dashboard vers l’accounting natif FoxCat.
+- Ajout du prélèvement réseau journalier sur la carte Énergie.
+- Tarifs affichés selon le régime actif (HP/HC ou dynamique).
+- Moteurs PRI, EMS et machine à états gelés.
+- Audit : 309 fonctions/méthodes, 0 suppression depuis 1.6.151.
+

@@ -207,11 +207,15 @@ def _machine_record_schema(current: dict[str, Any] | None = None) -> vol.Schema:
 
     cycle_marker, cycle_selector = opt_entity("cycle", ["binary_sensor", "input_boolean"])
     power_marker, power_selector = opt_entity("power_sensor", "sensor")
+    current_marker, current_selector = opt_entity("current_sensor", "sensor")
+    voltage_marker, voltage_selector = opt_entity("voltage_sensor", "sensor")
     return vol.Schema({
         vol.Required("name", default=str(current.get("name", ""))): selector.TextSelector(),
         vol.Required("switch", default=str(current.get("switch", ""))): _entity("switch"),
         cycle_marker: cycle_selector,
         power_marker: power_selector,
+        current_marker: current_selector,
+        voltage_marker: voltage_selector,
         vol.Optional("automatic", default=bool(current.get("automatic", True))): selector.BooleanSelector(),
         vol.Optional("sheddable", default=bool(current.get("sheddable", True))): selector.BooleanSelector(),
         vol.Optional("cycle_start_w", default=float(current.get("cycle_start_w", 10.0))): selector.NumberSelector(selector.NumberSelectorConfig(min=1,max=500,step=1,unit_of_measurement="W",mode=selector.NumberSelectorMode.BOX)),

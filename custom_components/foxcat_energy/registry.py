@@ -185,6 +185,10 @@ _native("boiler.execution_failure", "Boiler", "execution_failure_reason")
 _native("boiler.execution_retries", "Boiler", "execution_retries")
 _native("boiler.enabled", "Boiler", "boiler_enabled")
 _native("boiler.allow_hc", "Boiler", "boiler_allow_hc")
+_native("boiler.user_start", "Boiler", "boiler_demarrage_utilisateur")
+_native("boiler.user_stop", "Boiler", "boiler_arret_utilisateur")
+_native("boiler.user_auto", "Boiler", "boiler_retour_automatique")
+_native("boiler.user_override", "Boiler", "boiler_override_utilisateur")
 
 # Machines historiques + extensibles (les extensibles sont ajoutées dynamiquement au snapshot du registre).
 _config("machines.washer.switch", "Machines", CONF_WASHER_SOCKET, "switch.lave_linge_prise_1")
@@ -204,7 +208,12 @@ _native("pricing.next", "Tarification", "prix_suivant")
 _native("pricing.injection", "Tarification", "prix_injection")
 _native("pricing.period", "Tarification", "periode_tarifaire")
 _native("pricing.status", "Tarification", "statut_prix")
+_native("pricing.active_buy", "Tarification", "prix_achat_actif")
+_native("pricing.next_buy", "Tarification", "prix_achat_suivant")
+_native("pricing.active_label", "Tarification", "libelle_prix_actif")
+_native("pricing.next_label", "Tarification", "libelle_prix_suivant")
 _native("pricing.cost_today", "Tarification", "bilan_cout_reseau_jour")
+_native("pricing.export_value_today", "Tarification", "bilan_valeur_injection_jour")
 _native("pricing.net_today", "Tarification", "bilan_cout_net_jour")
 _native("pricing.solar_gain_today", "Tarification", "bilan_gain_solaire_jour")
 _config("pricing.source.current", "Tarification", CONF_PRICE_CURRENT, "sensor.luminus_luminus_comfyflex_wallonia_prix_actuel")
@@ -436,6 +445,21 @@ def resolve_registry(
             entity_id = binding.fallback_entity_id
         if entity_id:
             resolved[role] = entity_id
+
+    # Boutons utilisateurs des machines extensibles : rôles déterministes
+    # construits à partir des unique_id natifs FoxCat.
+    try:
+        from .machines import machine_definitions
+        for machine in machine_definitions(config):
+            safe_key = machine.machine_id.replace(" ", "_").lower()
+            start_key = f"machine_{safe_key}_demarrage_utilisateur"
+            stop_key = f"machine_{safe_key}_arret_utilisateur"
+            if native.get(start_key):
+                resolved[f"machines.{machine.machine_id}.user_start"] = native[start_key]
+            if native.get(stop_key):
+                resolved[f"machines.{machine.machine_id}.user_stop"] = native[stop_key]
+    except Exception:
+        pass
 
     return resolved
 

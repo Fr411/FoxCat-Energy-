@@ -692,16 +692,16 @@ views:
                   const priceStatus = stateOf(E.priceStatus, '—');
 
                   /* ==========================================================
-                     BILAN JOURNALIER — capteurs historiques conservés
+                     BILAN JOURNALIER — comptabilité native FoxCat
                      ========================================================== */
 
-                  const productionToday = Math.max(numberOf('[[foxcat:legacy.sensor_homefoxcat_total_production_today]]', 0), 0);
-                  const consumptionToday = Math.max(numberOf('[[foxcat:legacy.sensor_consommation_jour]]', 0), 0);
-                  const injectionToday = Math.max(numberOf('[[foxcat:legacy.sensor_reinjection_jour]]', 0), 0);
-                  const selfConsumed = Math.max(productionToday - injectionToday, 0);
-                  const selfConsumption = productionToday > 0 ? clamp((selfConsumed / productionToday) * 100, 0, 100) : 0;
-                  const gridEnergyToday = Math.max(consumptionToday - selfConsumed, 0);
-                  const dailyCost = gridEnergyToday * Math.max(buyPrice, 0);
+                  const productionToday = Math.max(numberOf('[[foxcat:energy.today.pv]]', 0), 0);
+                  const consumptionToday = Math.max(numberOf('[[foxcat:energy.today.house]]', 0), 0);
+                  const injectionToday = Math.max(numberOf('[[foxcat:energy.today.export]]', 0), 0);
+                  const selfConsumed = Math.max(numberOf('[[foxcat:energy.today.self_consumed]]', 0), 0);
+                  const selfConsumption = clamp(numberOf('[[foxcat:energy.today.self_consumption_pct]]', 0), 0, 100);
+                  const gridEnergyToday = Math.max(numberOf('[[foxcat:energy.today.import]]', 0), 0);
+                  const dailyCost = Math.max(numberOf('[[foxcat:pricing.cost_today]]', 0), 0);
 
                   /* ==========================================================
                      COULEURS / ÉTATS
@@ -2569,277 +2569,51 @@ views:
 
 
                   /* ==========================================================
-                     COMPTEURS JOURNALIERS
+                     COMPTEURS JOURNALIERS NATIFS FOXCAT
                      ========================================================== */
 
-                  /*
-                   * Consommation totale réelle maison.
-                   */
-
-                  const houseDay =
-                    Math.max(
-                      numberOf(
-                        '[[foxcat:legacy.sensor_homefoxcat_total_consumption_today]]',
-                        0
-                      ),
-                      0
-                    );
-
-
-                  /*
-                   * Production photovoltaïque totale.
-                   */
-
-                  const pvDay =
-                    Math.max(
-                      numberOf(
-                        '[[foxcat:legacy.sensor_homefoxcat_total_production_today]]',
-                        0
-                      ),
-                      0
-                    );
-
-
-                  /*
-                   * Prélèvement réseau depuis minuit.
-                   */
-
-                  const importDay =
-                    Math.max(
-                      numberOf(
-                        '[[foxcat:legacy.sensor_consommation_jour]]',
-                        0
-                      ),
-                      0
-                    );
-
-
-                  /*
-                   * Réinjection réseau depuis minuit.
-                   */
-
-                  const exportDay =
-                    Math.max(
-                      numberOf(
-                        '[[foxcat:legacy.sensor_reinjection_jour]]',
-                        0
-                      ),
-                      0
-                    );
-
-
-                  /*
-                   * PV réellement utilisé directement dans la maison.
-                   */
-
-                  const selfConsumed =
-                    Math.max(
-                      pvDay -
-                      exportDay,
-                      0
-                    );
-
+                  const houseDay = Math.max(numberOf('[[foxcat:energy.today.house]]', 0), 0);
+                  const pvDay = Math.max(numberOf('[[foxcat:energy.today.pv]]', 0), 0);
+                  const importDay = Math.max(numberOf('[[foxcat:energy.today.import]]', 0), 0);
+                  const exportDay = Math.max(numberOf('[[foxcat:energy.today.export]]', 0), 0);
+                  const selfConsumed = Math.max(numberOf('[[foxcat:energy.today.self_consumed]]', 0), 0);
 
                   /* ==========================================================
-                     BILAN FINANCIER JOURNALIER
+                     BILAN FINANCIER JOURNALIER NATIF
+
+                     EnergyAccounting intègre chaque trame avec le prix actif
+                     au moment de la trame. Le coût reste donc cohérent en HP/HC
+                     comme en tarification dynamique.
                      ========================================================== */
 
-                  const buyPriceForDaily =
-                    Number.isFinite(activeBuy)
-                      ? activeBuy
-                      : 0;
-
-
-                  /*
-                   * COÛT BRUT
-                   *
-                   * prélèvement réseau × prix actif
-                   */
-
-                  const grossDailyCost =
-                    importDay *
-                    buyPriceForDaily;
-
-
-                  /*
-                   * VALEUR RÉINJECTION
-                   */
-
-                  let exportDailyValue =
-                    0;
-
-
-                  let compensatedEnergy =
-                    0;
-
-
-                  if (
-                    isCompensation
-                  ) {
-
-                    /*
-                     * En compensation :
-                     *
-                     * la réinjection vient compenser
-                     * énergétiquement le prélèvement.
-                     */
-
-                    compensatedEnergy =
-                      Math.min(
-                        importDay,
-                        exportDay
-                      );
-
-
-                    exportDailyValue =
-                      compensatedEnergy *
-                      buyPriceForDaily;
-                  }
-
-
-                  else {
-
-                    const exportPrice =
-                      Number.isFinite(
-                        exportEconomicValue
-                      )
-                        ? exportEconomicValue
-                        : (
-                            Number.isFinite(
-                              fixedInjection
-                            )
-                              ? fixedInjection
-                              : 0
-                          );
-
-
-                    exportDailyValue =
-                      exportDay *
-                      exportPrice;
-                  }
-
-
-                  /*
-                   * COÛT NET
-                   */
-
-                  let dailyNetCost =
-                    0;
-
-
-                  if (
-                    isCompensation
-                  ) {
-
-                    const netGridEnergy =
-                      Math.max(
-                        importDay -
-                        exportDay,
-                        0
-                      );
-
-
-                    dailyNetCost =
-                      netGridEnergy *
-                      buyPriceForDaily;
-                  }
-
-
-                  else {
-
-                    dailyNetCost =
-                      grossDailyCost -
-                      exportDailyValue;
-                  }
-
-
-                  /*
-                   * Valeur du solaire autoconsommé.
-                   */
-
-                  const solarDailySaving =
-                    selfConsumed *
-                    buyPriceForDaily;
-
-
-                  /*
-                   * Coût théorique sans photovoltaïque.
-                   */
-
-                  const theoreticalWithoutPv =
-                    houseDay *
-                    buyPriceForDaily;
-
-
-                  /*
-                   * Avantage photovoltaïque global.
-                   */
-
-                  const photovoltaicBenefit =
-                    theoreticalWithoutPv -
-                    Math.max(
-                      dailyNetCost,
-                      0
-                    );
-
-
-                  /*
-                   * Solde énergétique réseau.
-                   */
-
-                  const netGridDay =
-                    importDay -
-                    exportDay;
-
+                  const grossDailyCost = Math.max(numberOf('[[foxcat:pricing.cost_today]]', 0), 0);
+                  const exportDailyValue = Math.max(numberOf('[[foxcat:pricing.export_value_today]]', 0), 0);
+                  const dailyNetCost = numberOf('[[foxcat:pricing.net_today]]', grossDailyCost - exportDailyValue);
+                  const photovoltaicBenefit = Math.max(numberOf('[[foxcat:pricing.solar_gain_today]]', 0), 0);
+                  const solarDailySaving = Math.max(photovoltaicBenefit - exportDailyValue, 0);
+                  const theoreticalWithoutPv = Math.max(grossDailyCost + solarDailySaving, 0);
+                  const compensatedEnergy = isCompensation ? Math.min(importDay, exportDay) : 0;
+                  const netGridDay = importDay - exportDay;
 
                   /* ==========================================================
                      INDICATION PRÉCISION JOURNALIÈRE
                      ========================================================== */
 
-                  let dailyMethod =
-                    'ESTIMATION';
+                  let dailyMethod = 'COMPTABILITÉ FOXCAT';
+                  let dailyNote = 'Coût intégré trame par trame avec le tarif réellement actif.';
 
-
-                  let dailyNote =
-                    'Calcul journalier basé sur le prix actuellement actif.';
-
-
-                  if (
-                    isDynamic
-                  ) {
-
-                    dailyMethod =
-                      'ESTIMATION DYNAMIQUE';
-
-
-                    dailyNote =
-                      'Le coût journalier est actuellement estimé avec le prix dynamique actif. Un compteur FoxCat accumulé heure par heure sera nécessaire pour obtenir le coût dynamique exact.';
+                  if (isDynamic) {
+                    dailyMethod = 'DYNAMIQUE · INTÉGRÉ';
+                    dailyNote = 'Chaque trame est valorisée avec le prix dynamique actif au moment de la consommation et de la réinjection.';
                   }
-
-
-                  else if (
-                    isTou
-                  ) {
-
-                    dailyMethod =
-                      'ESTIMATION HP / HC';
-
-
-                    dailyNote =
-                      `Calcul basé sur le tarif ${period} actuellement actif. Pour un coût journalier exact, les kWh HP et HC doivent être accumulés séparément.`;
+                  else if (isTou) {
+                    dailyMethod = 'HP / HC · INTÉGRÉ';
+                    dailyNote = `Chaque trame est valorisée avec le tarif ${period} actif au moment du prélèvement. Les changements HP/HC sont intégrés automatiquement.`;
                   }
-
-
                   else {
-
-                    dailyMethod =
-                      'ESTIMATION COMPENSATION';
-
-
-                    dailyNote =
-                      'Sous compensation, le coût du jour est une représentation indicative du solde énergétique. La compensation réelle s’apprécie sur la période de facturation.';
+                    dailyMethod = 'COMPENSATION · SUIVI';
+                    dailyNote = 'Le suivi énergétique est natif FoxCat. La compensation de facturation reste dépendante des règles du contrat et de la période de relevé.';
                   }
-
 
                   /* ==========================================================
                      STYLE DU RÉGIME
@@ -11635,12 +11409,12 @@ views:
 
                   const prod =
                     Number(
-                      states['[[foxcat:legacy.sensor_homefoxcat_total_production_today]]']?.state || 0
+                      states['[[foxcat:energy.today.pv]]']?.state || 0
                     );
 
                   const exportDay =
                     Number(
-                      states['[[foxcat:legacy.sensor_reinjection_jour]]']?.state || 0
+                      states['[[foxcat:energy.today.export]]']?.state || 0
                     );
 
                   const autocons =
@@ -11665,7 +11439,7 @@ views:
 
                   const price =
                     Number(
-                      states['[[foxcat:pricing.source.current]]']?.state || 0
+                      states['[[foxcat:pricing.active_buy]]']?.state || 0
                     );
 
                   let scoreLabel = 'Repos';
@@ -15480,14 +15254,14 @@ views:
                   stroke: '#f44336'
                   stroke-width: 10
                 secondary:
-                  entity: [[foxcat:legacy.sensor_consommation_jour]]
+                  entity: [[foxcat:energy.today.import]]
                   start_from_zero: true
                   gauge_foreground_style:
                     stroke: '#ff9800'
                     stroke-width: 6
                   adaptive_state_color: true
                 tertiary:
-                  entity: [[foxcat:legacy.sensor_consommation_reelle_maison]]
+                  entity: [[foxcat:energy.house_power]]
                   show_gauge: inner
                   min: '0'
                   max: 10000
@@ -15520,10 +15294,10 @@ views:
                   stroke: '#ffc107'
                   stroke-width: 10
                 secondary:
-                  entity: [[foxcat:legacy.sensor_homefoxcat_total_production_today]]
+                  entity: [[foxcat:energy.today.pv]]
                   adaptive_state_color: true
                 tertiary:
-                  entity: [[foxcat:legacy.sensor_pourcentage_solaire_consomme]]
+                  entity: [[foxcat:energy.today.self_consumption_pct]]
                   show_gauge: inner
                   adaptive_state_color: true
                 adaptive_state_color: true
@@ -15532,7 +15306,7 @@ views:
                 max: 4000
               - type: custom:modern-circular-gauge
                 name: 🔁 Injection
-                entity: [[foxcat:sources.grid_fallback]]
+                entity: [[foxcat:energy.grid_export]]
                 max: 4000
                 start_from_zero: true
                 show_state: true
@@ -15546,7 +15320,7 @@ views:
                   stroke: '#03a9f4'
                   stroke-width: 10
                 secondary:
-                  entity: [[foxcat:legacy.sensor_reinjection_jour]]
+                  entity: [[foxcat:energy.today.export]]
                   state_size: small
                   show_gauge: inner
                   adaptive_state_color: true
@@ -15572,7 +15346,7 @@ views:
                 adaptive_state_color: true
               - type: custom:modern-circular-gauge
                 name: 💰 Prix actuel (€/kWh)
-                entity: [[foxcat:legacy.sensor_prix_electricite_actif_aiesh_tvac]]
+                entity: [[foxcat:pricing.active_buy]]
                 max: 0.5
                 start_from_zero: true
                 show_state: true
@@ -17743,185 +17517,54 @@ views:
 
 
                   /* =========================================================
-                     COMPTEURS JOUR
+                     COMPTEURS JOUR — NATIFS FOXCAT
                      ========================================================= */
 
-                  const consumptionDay =
-                    Math.max(
-                      numberOf(
-                        '[[foxcat:legacy.sensor_consommation_jour]]',
-                        0
-                      ),
-                      0
-                    );
-
-
-                  const exportDay =
-                    Math.max(
-                      numberOf(
-                        '[[foxcat:legacy.sensor_reinjection_jour]]',
-                        0
-                      ),
-                      0
-                    );
-
-
-                  const pvDay =
-                    Math.max(
-                      numberOf(
-                        '[[foxcat:legacy.sensor_homefoxcat_total_production_today]]',
-                        0
-                      ),
-                      0
-                    );
-
-
-                  const solarSelfConsumed =
-                    Math.max(
-                      pvDay -
-                      exportDay,
-                      0
-                    );
-
-
-                  const gridDay =
-                    Math.max(
-                      consumptionDay -
-                      solarSelfConsumed,
-                      0
-                    );
-
-
-                  const selfConsumptionRate =
-                    pvDay > 0
-                      ? clamp(
-                          (
-                            solarSelfConsumed /
-                            pvDay
-                          ) * 100,
-                          0,
-                          100
-                        )
-                      : 0;
-
-
-                  const autonomyRate =
-                    consumptionDay > 0
-                      ? clamp(
-                          (
-                            solarSelfConsumed /
-                            consumptionDay
-                          ) * 100,
-                          0,
-                          100
-                        )
-                      : 0;
-
+                  const consumptionDay = Math.max(numberOf('[[foxcat:energy.today.house]]', 0), 0);
+                  const gridDay = Math.max(numberOf('[[foxcat:energy.today.import]]', 0), 0);
+                  const exportDay = Math.max(numberOf('[[foxcat:energy.today.export]]', 0), 0);
+                  const pvDay = Math.max(numberOf('[[foxcat:energy.today.pv]]', 0), 0);
+                  const solarSelfConsumed = Math.max(numberOf('[[foxcat:energy.today.self_consumed]]', 0), 0);
+                  const selfConsumptionRate = clamp(numberOf('[[foxcat:energy.today.self_consumption_pct]]', 0), 0, 100);
+                  const autonomyRate = clamp(numberOf('[[foxcat:energy.today.autonomy_pct]]', 0), 0, 100);
 
                   /* =========================================================
-                     PRIX
+                     PRIX — le régime FoxCat choisit automatiquement la source
                      ========================================================= */
 
-                  const currentPrice =
-                    Math.max(
-                      numberOf(
-                        E.currentPrice,
-                        numberOf(
-                          '[[foxcat:pricing.source.current]]',
-                          0
-                        )
-                      ),
-                      0
-                    );
+                  const currentPrice = numberOf('[[foxcat:pricing.active_buy]]', 0);
+                  const nextPrice = numberOf('[[foxcat:pricing.next_buy]]', currentPrice);
+                  const activePriceLabel = stateOf('[[foxcat:pricing.active_label]]', 'TARIF ACTIF');
+                  const nextPriceLabel = stateOf('[[foxcat:pricing.next_label]]', 'TARIF SUIVANT');
+                  const estimatedCost = Math.max(numberOf('[[foxcat:pricing.cost_today]]', 0), 0);
+                  const solarSaving = Math.max(numberOf('[[foxcat:pricing.solar_gain_today]]', 0), 0);
 
+                  let priceState = stateOf('[[foxcat:pricing.status]]', 'NORMAL');
+                  let priceColor = '#facc15';
+                  const priceNorm = norm(priceState);
 
-                  const nextPrice =
-                    Math.max(
-                      numberOf(
-                        E.nextPrice,
-                        numberOf(
-                          '[[foxcat:legacy.sensor_luminus_luminus]]',
-                          currentPrice
-                        )
-                      ),
-                      0
-                    );
-
-
-                  const estimatedCost =
-                    gridDay *
-                    currentPrice;
-
-
-                  const solarSaving =
-                    solarSelfConsumed *
-                    currentPrice;
-
-
-                  let priceState =
-                    'NORMAL';
-
-                  let priceColor =
-                    '#facc15';
-
-
-                  if (
-                    currentPrice < 0.20
-                  ) {
-
-                    priceState =
-                      'AVANTAGEUX';
-
-                    priceColor =
-                      '#34d399';
+                  if (priceNorm.includes('avantage') || priceNorm.includes('bas') || priceNorm.includes('hc') || priceNorm.includes('negatif')) {
+                    priceColor = '#34d399';
+                  }
+                  else if (priceNorm.includes('eleve') || priceNorm.includes('cher')) {
+                    priceColor = '#fb7185';
+                  }
+                  else if (priceNorm.includes('hp')) {
+                    priceColor = '#fb923c';
                   }
 
-                  else if (
-                    currentPrice > 0.35
-                  ) {
+                  const priceDelta = nextPrice - currentPrice;
+                  let nextTrend = '→ stable';
+                  let nextTrendColor = '#94a3b8';
 
-                    priceState =
-                      'ÉLEVÉ';
-
-                    priceColor =
-                      '#fb7185';
+                  if (priceDelta > 0.01) {
+                    nextTrend = '↗ hausse';
+                    nextTrendColor = '#fb7185';
                   }
-
-
-                  const priceDelta =
-                    nextPrice -
-                    currentPrice;
-
-
-                  let nextTrend =
-                    '→ stable';
-
-                  let nextTrendColor =
-                    '#94a3b8';
-
-
-                  if (
-                    priceDelta > 0.01
-                  ) {
-
-                    nextTrend =
-                      '↗ hausse';
-
-                    nextTrendColor =
-                      '#fb7185';
+                  else if (priceDelta < -0.01) {
+                    nextTrend = '↘ baisse';
+                    nextTrendColor = '#34d399';
                   }
-
-                  else if (
-                    priceDelta < -0.01
-                  ) {
-
-                    nextTrend =
-                      '↘ baisse';
-
-                    nextTrendColor =
-                      '#34d399';
-                  }
-
 
                   /* =========================================================
                      ÉTAT RÉSEAU
@@ -18483,6 +18126,28 @@ views:
 
 
 
+                        <div class="kpi import">
+
+                          <div class="kpi-icon">
+                            <ha-icon icon="mdi:transmission-tower-import"></ha-icon>
+                          </div>
+
+                          <div class="kpi-label">
+                            RÉSEAU PRÉLEVÉ
+                          </div>
+
+                          <div class="kpi-value">
+                            ${fmtEnergy(gridDay)}
+                          </div>
+
+                          <div class="kpi-foot">
+                            énergie prélevée au réseau aujourd'hui
+                          </div>
+
+                        </div>
+
+
+
                         <div class="kpi self">
 
                           <div class="kpi-icon">
@@ -18645,7 +18310,7 @@ views:
                             </div>
 
                             <div class="cost-caption">
-                              coût réseau estimé aujourd'hui
+                              coût réseau intégré aujourd'hui
                             </div>
 
                           </div>
@@ -18654,7 +18319,7 @@ views:
                           <div class="row">
 
                             <span>
-                              Réseau estimé
+                              Réseau prélevé
                             </span>
 
                             <strong>
@@ -18667,7 +18332,7 @@ views:
                           <div class="row">
 
                             <span>
-                              Prix actuel
+                              ${activePriceLabel}
                             </span>
 
                             <strong>
@@ -18680,7 +18345,7 @@ views:
                           <div class="row">
 
                             <span>
-                              Heure suivante
+                              ${nextPriceLabel}
                             </span>
 
                             <strong
@@ -18688,7 +18353,7 @@ views:
                                 color:${nextTrendColor};
                               "
                             >
-                              ${nextPrice.toFixed(3)} €
+                              ${nextPrice.toFixed(3)} €/kWh
                               ${nextTrend}
                             </strong>
 
@@ -19483,7 +19148,7 @@ views:
 
                 grid-template-columns:
                   repeat(
-                    4,
+                    5,
                     minmax(0,1fr)
                   );
 
@@ -19592,6 +19257,12 @@ views:
               .export .kpi-icon,
               .export .kpi-value {
                 color: #34d399;
+              }
+
+
+              .import .kpi-icon,
+              .import .kpi-value {
+                color: #fb7185;
               }
 
 
