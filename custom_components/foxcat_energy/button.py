@@ -60,6 +60,30 @@ async def async_setup_entry(
                 "machines",
                 "machines",
             ),
+            FoxCatActionButton(
+                coordinator,
+                "boiler_demarrage_utilisateur",
+                "Démarrage utilisateur Boiler",
+                "mdi:water-boiler",
+                "user_functions",
+                "boiler_user_on",
+            ),
+            FoxCatActionButton(
+                coordinator,
+                "boiler_arret_utilisateur",
+                "Arrêt utilisateur Boiler",
+                "mdi:water-boiler-off",
+                "user_functions",
+                "boiler_user_off",
+            ),
+            FoxCatActionButton(
+                coordinator,
+                "boiler_retour_automatique",
+                "Boiler retour automatique EMS",
+                "mdi:autorenew",
+                "user_functions",
+                "boiler_user_auto",
+            ),
             # Nouveau : permet de remettre le dashboard officiel du dépôt.
             FoxCatActionButton(
                 coordinator,
@@ -72,6 +96,32 @@ async def async_setup_entry(
         ]
     )
 
+    machine_buttons: list[FoxCatActionButton] = []
+    for machine in coordinator.machines:
+        safe_key = machine.machine_id.replace(" ", "_").lower()
+        machine_buttons.extend([
+            FoxCatActionButton(
+                coordinator,
+                f"machine_{safe_key}_demarrage_utilisateur",
+                f"Démarrage utilisateur {machine.name}",
+                "mdi:play-circle-outline",
+                "user_functions",
+                "machine_user_on",
+                machine_id=machine.machine_id,
+            ),
+            FoxCatActionButton(
+                coordinator,
+                f"machine_{safe_key}_arret_utilisateur",
+                f"Arrêt utilisateur {machine.name}",
+                "mdi:stop-circle-outline",
+                "user_functions",
+                "machine_user_off",
+                machine_id=machine.machine_id,
+            ),
+        ])
+    if machine_buttons:
+        async_add_entities(machine_buttons)
+
 
 class FoxCatActionButton(FoxCatEntity, ButtonEntity):
     def __init__(
@@ -82,6 +132,7 @@ class FoxCatActionButton(FoxCatEntity, ButtonEntity):
         icon: str,
         device: str,
         action: str,
+        machine_id: str | None = None,
     ) -> None:
         super().__init__(
             coordinator,
@@ -91,6 +142,7 @@ class FoxCatActionButton(FoxCatEntity, ButtonEntity):
             device,
         )
         self._action = action
+        self._machine_id = machine_id
 
     async def async_press(self) -> None:
         if self._action == "solar":
@@ -117,6 +169,21 @@ class FoxCatActionButton(FoxCatEntity, ButtonEntity):
 
         elif self._action == "machines":
             await self.coordinator.async_reconcile_machines()
+
+        elif self._action == "machine_user_on" and self._machine_id:
+            await self.coordinator.async_user_start_machine(self._machine_id)
+
+        elif self._action == "machine_user_off" and self._machine_id:
+            await self.coordinator.async_user_stop_machine(self._machine_id)
+
+        elif self._action == "boiler_user_on":
+            await self.coordinator.async_user_boiler_override("FORCE_ON")
+
+        elif self._action == "boiler_user_off":
+            await self.coordinator.async_user_boiler_override("FORCE_OFF")
+
+        elif self._action == "boiler_user_auto":
+            await self.coordinator.async_user_boiler_override("AUTO")
 
         elif self._action == "dashboard":
             await async_regenerate_dashboard(self.hass, self.coordinator.entry, self.coordinator.config)

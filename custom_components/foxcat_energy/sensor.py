@@ -31,6 +31,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         FoxCatValueSensor(c, "action_en_attente", "Action en attente", "mdi:progress-clock", "ems", lambda d: d["core"]["pending_action"]),
         FoxCatValueSensor(c, "demande_boiler", "Demande chauffe-eau", "mdi:water-boiler-auto", "boiler", lambda d: d["core"]["boiler_demand"]),
         FoxCatValueSensor(c, "origine_boiler", "Origine de la demande chauffe-eau", "mdi:source-branch", "boiler", lambda d: d["core"]["boiler_origin"]),
+        FoxCatValueSensor(c, "boiler_override_utilisateur", "Boiler • Commande utilisateur", "mdi:account-cog-outline", "user_functions", lambda d: d["core"].get("boiler_user_override", "AUTO")),
         FoxCatValueSensor(c, "execution_status", "État d’exécution chauffe-eau", "mdi:progress-check", "boiler", lambda d: d["core"]["execution_status"]),
         FoxCatValueSensor(c, "execution_command", "Commande chauffe-eau vérifiée", "mdi:code-tags-check", "boiler", lambda d: d["core"]["execution_command"]),
         FoxCatValueSensor(c, "execution_failure_reason", "Raison d'échec d'exécution", "mdi:alert-circle-outline", "boiler", lambda d: d["core"]["execution_failure_reason"] or "Aucune"),

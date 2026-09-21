@@ -114,7 +114,7 @@ from .const import (
     TARIFF_DYNAMIC,
     TARIFF_TOU,
 )
-from .engine import EnergySnapshot, SolarForecast, decide_dynamic, decide_zero, evaluate_mode
+from .engine import BoilerIntent, EnergySnapshot, SolarForecast, decide_dynamic, decide_zero, evaluate_mode
 from .engine.load_guard import (
     boiler_surplus_before_load_w,
     protected_cycle_boiler_allowed,
@@ -158,6 +158,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "last_action": None,
             "boiler_demand": BOILER_NONE,
             "boiler_origin": "AUCUNE",
+            "boiler_user_override": "AUTO",
             "execution_status": "IDLE",
             "execution_command": "NONE",
             "execution_retries": 0,
@@ -1532,24 +1533,33 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         mode = str(self.settings.get("mode"))
-        if mode == MODE_MANUAL:
-            self.reset_core("Mode Manuel : stratégies automatiques en sommeil, sécurités actives.")
-            return
-
-        intent = evaluate_mode(
-            mode,
-            snapshot,
-            t0,
-            self.settings,
-            dt_util.now(),
-            self._boiler_on_seconds(),
-            str(self.core_state.get("boiler_demand", BOILER_NONE)),
-            self.prices(),
-            self.solar_forecast,
-        )
+        user_override = str(self.core_state.get("boiler_user_override", "AUTO"))
+        if user_override == "FORCE_ON":
+            if snapshot.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
+                intent = BoilerIntent(BOILER_STOP, "Utilisateur : démarrage Boiler bloqué par sécurité température.", "UTILISATEUR")
+            else:
+                intent = BoilerIntent(BOILER_HEAT_45, "Utilisateur : démarrage Boiler forcé.", "UTILISATEUR")
+        elif user_override == "FORCE_OFF":
+            intent = BoilerIntent(BOILER_STOP, "Utilisateur : arrêt Boiler forcé.", "UTILISATEUR")
+        else:
+            if mode == MODE_MANUAL:
+                self.reset_core("Mode Manuel : stratégies automatiques en sommeil, sécurités actives.")
+                return
+            intent = evaluate_mode(
+                mode,
+                snapshot,
+                t0,
+                self.settings,
+                dt_util.now(),
+                self._boiler_on_seconds(),
+                str(self.core_state.get("boiler_demand", BOILER_NONE)),
+                self.prices(),
+                self.solar_forecast,
+            )
 
         if (
-            intent.action in {BOILER_HEAT_45, BOILER_BOOST_65}
+            intent.origin != "UTILISATEUR"
+            and intent.action in {BOILER_HEAT_45, BOILER_BOOST_65}
             and str(self.settings.get("network_policy", NETWORK_POLICY_COMPENSATION)) != NETWORK_POLICY_COMPENSATION
             and snapshot.machine_active
             and not protected_cycle_boiler_allowed_stable(snapshot, t0, self.settings)
@@ -1635,7 +1645,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
 
     async def async_command_boiler(self, action: str, reason: str, origin: str) -> None:
-        if not bool(self.settings.get("regulation_active")):
+        if not bool(self.settings.get("regulation_active")) and origin not in {"UTILISATEUR", "SECURITE"}:
             return
         climate = self.config.get(CONF_BOILER_CLIMATE)
         if not climate:
@@ -1794,6 +1804,10 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         if not bool(self.settings["boiler_enabled"]) or snap.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
             return True
+        # Un démarrage utilisateur garde la priorité sur les stratégies EMS et
+        # les cycles machines. La sécurité thermique reste souveraine.
+        if str(self.core_state.get("boiler_user_override", "AUTO")) == "FORCE_ON":
+            return False
         if snap.machine_active and not protected_cycle_boiler_allowed(snap, self.settings):
             return True
         if str(self.settings.get("mode")) == MODE_MANUAL:
@@ -1801,7 +1815,10 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return False
 
     async def _retry_boiler_command(self, command: str) -> None:
-        if not bool(self.settings.get("regulation_active")):
+        if (
+            not bool(self.settings.get("regulation_active"))
+            and str(self.core_state.get("boiler_user_override", "AUTO")) != "FORCE_ON"
+        ):
             return
         climate = self.config.get(CONF_BOILER_CLIMATE)
         if not climate:
@@ -1823,13 +1840,16 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_handle_safety_change(self) -> None:
         snap = self.snapshot()
-        if bool(self.settings.get("regulation_active")):
+        # Sécurité thermique toujours souveraine, y compris régulation désactivée
+        # et override utilisateur actif.
+        if snap.boiler_on and snap.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
+            await self.async_command_boiler(BOILER_STOP, "SÉCURITÉ : température boiler maximale atteinte.", "SECURITE")
+        elif bool(self.settings.get("regulation_active")):
             mode = str(self.settings.get("mode"))
-            # La sécurité thermique dure reste active même en Manuel.
-            if snap.boiler_on and snap.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
-                await self.async_command_boiler(BOILER_STOP, "SÉCURITÉ : température boiler maximale atteinte.", "SECURITE")
-            elif (
-                mode != MODE_MANUAL
+            user_override = str(self.core_state.get("boiler_user_override", "AUTO"))
+            if (
+                user_override == "AUTO"
+                and mode != MODE_MANUAL
                 and snap.boiler_on
                 and snap.machine_active
                 and not protected_cycle_boiler_allowed(snap, self.settings)
@@ -1933,6 +1953,115 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save()
         await self.async_reconcile_machines()
         self.async_set_updated_data(self._build_data())
+
+    async def _async_user_switch_call(self, entity_id: str, turn_on: bool) -> bool:
+        """Commande utilisateur bornée, sans polluer l'état d'exécution Boiler."""
+        try:
+            await asyncio.wait_for(
+                self.hass.services.async_call(
+                    "switch", "turn_on" if turn_on else "turn_off",
+                    {"entity_id": entity_id}, blocking=True,
+                ),
+                timeout=3.0,
+            )
+            return True
+        except (asyncio.TimeoutError, Exception) as err:
+            _LOGGER.warning("FoxCat user switch command failed for %s: %s", entity_id, err)
+            return False
+
+    async def async_user_start_machine(self, machine_id: str) -> bool:
+        """Démarrage utilisateur : priorité au cycle protégé, sans attendre l'EMS."""
+        machine = next((item for item in self.machines if item.machine_id == machine_id), None)
+        if machine is None or not machine.switch_entity:
+            return False
+        now = dt_util.now()
+        self.machine_cycle_manager.force_start(
+            machine.machine_id, now,
+            duration_minutes=machine.cycle_duration_minutes,
+            margin_minutes=machine.cycle_margin_minutes,
+            origin="USER_BUTTON",
+        )
+        ok = await self._async_user_switch_call(machine.switch_entity, True)
+        if not ok:
+            # Une commande physique refusée ne doit pas laisser un faux cycle
+            # protégé pendant plusieurs heures.
+            self.machine_cycle_manager.force_finish(machine.machine_id)
+        message_id = self.energy_bus.publish_message(
+            source="UTILISATEUR", target="EMS", action=f"MACHINE_START:{machine.machine_id}",
+            delta_w=0.0, now=now, frame_id=self._frame_id, machine=machine.name,
+            reason="Démarrage utilisateur : cycle protégé.",
+        )
+        self.energy_bus.mark_processed(
+            message_id, by="EMS", now=dt_util.now(),
+            reason="Commande machine utilisateur prise en charge." if ok else "Commande machine utilisateur en échec.",
+        )
+        self.core_state["last_reason"] = (
+            f"Utilisateur : démarrage {machine.name} {'envoyé' if ok else 'échoué'} ; cycle protégé actif."
+        )
+        self.async_set_updated_data(self._build_data())
+        return ok
+
+    async def async_user_stop_machine(self, machine_id: str) -> bool:
+        """Arrêt utilisateur explicite : termine la protection puis coupe la prise."""
+        machine = next((item for item in self.machines if item.machine_id == machine_id), None)
+        if machine is None or not machine.switch_entity:
+            return False
+        self.machine_cycle_manager.force_finish(machine.machine_id)
+        ok = await self._async_user_switch_call(machine.switch_entity, False)
+        message_id = self.energy_bus.publish_message(
+            source="UTILISATEUR", target="EMS", action=f"MACHINE_STOP:{machine.machine_id}",
+            delta_w=0.0, now=dt_util.now(), frame_id=self._frame_id, machine=machine.name,
+            reason="Arrêt utilisateur explicite.",
+        )
+        self.energy_bus.mark_processed(
+            message_id, by="EMS", now=dt_util.now(),
+            reason="Arrêt machine utilisateur pris en charge." if ok else "Arrêt machine utilisateur en échec.",
+        )
+        self.core_state["last_reason"] = f"Utilisateur : arrêt {machine.name} {'envoyé' if ok else 'échoué'}."
+        self.async_set_updated_data(self._build_data())
+        return ok
+
+    async def async_user_boiler_override(self, state: str) -> bool:
+        """Commande utilisateur Boiler : FORCE_ON, FORCE_OFF ou AUTO."""
+        state = str(state).upper()
+        if state not in {"FORCE_ON", "FORCE_OFF", "AUTO"}:
+            return False
+        self.core_state["boiler_user_override"] = state
+        now = dt_util.now()
+        if state == "AUTO":
+            self.reset_core("Utilisateur : Boiler rendu à l'EMS automatique.")
+            action = "BOILER_AUTO"
+            ok = True
+        elif state == "FORCE_OFF":
+            action = "BOILER_USER_STOP"
+            await self.async_command_boiler(BOILER_STOP, "Utilisateur : arrêt Boiler forcé.", "UTILISATEUR")
+            ok = True
+        else:
+            snap = self.snapshot()
+            if not bool(self.settings.get("boiler_enabled")):
+                self.core_state["last_reason"] = "Utilisateur : démarrage Boiler refusé car la fonction Boiler est désactivée."
+                self.core_state["boiler_user_override"] = "AUTO"
+                action = "BOILER_USER_START_BLOCKED"
+                ok = False
+            elif snap.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
+                self.core_state["last_reason"] = "Utilisateur : démarrage Boiler refusé par sécurité température."
+                self.core_state["boiler_user_override"] = "AUTO"
+                action = "BOILER_USER_START_BLOCKED"
+                ok = False
+            else:
+                action = "BOILER_USER_START"
+                await self.async_command_boiler(BOILER_HEAT_45, "Utilisateur : démarrage Boiler forcé.", "UTILISATEUR")
+                ok = True
+        message_id = self.energy_bus.publish_message(
+            source="UTILISATEUR", target="EMS", action=action, delta_w=0.0, now=now,
+            frame_id=self._frame_id, reason=f"Override Boiler={state}.",
+        )
+        self.energy_bus.mark_processed(
+            message_id, by="EMS", now=dt_util.now(),
+            reason="Commande utilisateur Boiler enregistrée." if ok else "Commande utilisateur Boiler refusée par sécurité.",
+        )
+        self.async_set_updated_data(self._build_data())
+        return ok
 
     async def async_reconcile_machines(self) -> None:
         if not bool(self.settings.get("regulation_active")):
@@ -2294,6 +2423,23 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("Unable to release PRI to 100%%: %s", err)
             self.pri_state["ack_rrcr"] = "FAILED"
             self.pri_state["last_reason"] = f"Échec fail-safe 100 % : {err}"
+
+    def _classify_pri_grid(self, snapshot: EnergySnapshot) -> str:
+        """Classe le résultat réseau PRI sans lever d'exception.
+
+        Le réseau signé FoxCat est positif en prélèvement et négatif en
+        réinjection. L'ACK est OK tant que la trame reste dans l'enveloppe
+        configurable ; sinon la cause est explicitement indiquée.
+        """
+        if not snapshot.valid:
+            return "NOK_DONNEES"
+        export_limit = max(float(self.settings.get("pri_export_acceptable_w", 150.0)), 0.0)
+        import_limit = max(float(self.settings.get("pri_import_acceptable_w", 200.0)), 0.0)
+        if snapshot.export_w > export_limit:
+            return "NOK_REINJECTION"
+        if snapshot.import_w > import_limit:
+            return "NOK_PRELEVEMENT"
+        return "OK"
 
     def _update_pri_pv_comparator(self, snapshot: EnergySnapshot, level: int) -> None:
         max_w=float(self.settings.get("pri_step_w",400.0))*10.0
