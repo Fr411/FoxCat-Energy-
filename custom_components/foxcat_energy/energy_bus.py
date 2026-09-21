@@ -105,10 +105,12 @@ class EnergyBus:
         **metadata: Any,
     ) -> int:
         # Compatibilité historique : les appels existants restent valides, mais
-        # le corps source est désormais explicitement EMS sur le bus.
+        # le corps source est désormais explicitement EMS sur le bus. Une origine
+        # fournie par l'appelant reste souveraine afin d'éviter un doublon kwargs.
+        metadata.setdefault("origin", source)
         return self.publish_message(
             source="EMS", target=target, action=action, delta_w=delta_w,
-            now=now, frame_id=frame_id, origin=source, **metadata,
+            now=now, frame_id=frame_id, **metadata,
         )
 
     def reset_daily_counters(self, now: datetime) -> dict[str, int]:

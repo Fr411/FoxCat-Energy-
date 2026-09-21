@@ -31,6 +31,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         FoxCatValueSensor(c, "action_en_attente", "Action en attente", "mdi:progress-clock", "ems", lambda d: d["core"]["pending_action"]),
         FoxCatValueSensor(c, "demande_boiler", "Demande chauffe-eau", "mdi:water-boiler-auto", "boiler", lambda d: d["core"]["boiler_demand"]),
         FoxCatValueSensor(c, "origine_boiler", "Origine de la demande chauffe-eau", "mdi:source-branch", "boiler", lambda d: d["core"]["boiler_origin"]),
+        FoxCatValueSensor(c, "boiler_override_utilisateur", "Boiler • Commande utilisateur", "mdi:account-cog-outline", "user_functions", lambda d: d["core"].get("boiler_user_override", "AUTO")),
         FoxCatValueSensor(c, "execution_status", "État d’exécution chauffe-eau", "mdi:progress-check", "boiler", lambda d: d["core"]["execution_status"]),
         FoxCatValueSensor(c, "execution_command", "Commande chauffe-eau vérifiée", "mdi:code-tags-check", "boiler", lambda d: d["core"]["execution_command"]),
         FoxCatValueSensor(c, "execution_failure_reason", "Raison d'échec d'exécution", "mdi:alert-circle-outline", "boiler", lambda d: d["core"]["execution_failure_reason"] or "Aucune"),
@@ -98,6 +99,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         FoxCatValueSensor(c, "modele_cout", "Modèle de coût", "mdi:calculator-variant-outline", "pricing", lambda d: d["prices"].get("cost_model")),
         FoxCatValueSensor(c, "prix_negatif_actif", "Prix dynamique négatif actif", "mdi:cash-minus", "pricing", lambda d: "OUI" if d["prices"].get("negative_purchase") else "NON"),
         FoxCatNumericSensor(c, "prix_achat_actif", "Prix d'achat actif", "mdi:transmission-tower-import", "pricing", lambda d: d["prices"].get("active_buy"), "€/kWh"),
+        FoxCatNumericSensor(c, "prix_achat_suivant", "Prix d'achat suivant", "mdi:clock-fast", "pricing", lambda d: d["prices"].get("next_buy"), "€/kWh"),
+        FoxCatValueSensor(c, "libelle_prix_actif", "Libellé prix actif", "mdi:label-outline", "pricing", lambda d: d["prices"].get("active_buy_label", "—")),
+        FoxCatValueSensor(c, "libelle_prix_suivant", "Libellé prix suivant", "mdi:label-multiple-outline", "pricing", lambda d: d["prices"].get("next_buy_label", "—")),
         FoxCatNumericSensor(c, "valeur_reinjection", "Valeur économique de la réinjection", "mdi:transmission-tower-export", "pricing", lambda d: d["prices"].get("export_value"), "€/kWh"),
         FoxCatNumericSensor(c, "cout_prelevement_instantane", "Coût instantané du prélèvement", "mdi:cash-minus", "pricing", lambda d: d["prices"].get("import_cost_rate_eur_h"), "€/h"),
         FoxCatNumericSensor(c, "valeur_reinjection_instantanee", "Valeur instantanée de la réinjection", "mdi:cash-plus", "pricing", lambda d: d["prices"].get("export_value_rate_eur_h"), "€/h"),
@@ -170,6 +174,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             FoxCatNumericSensor(c, f"appareil_{safe}_hc_jour", f"🔌 {appliance_name} • Consommation HC aujourd’hui", "mdi:weather-night", "accounting", lambda d, aid=appliance_id: d["accounting"]["today"]["appliances"].get(aid,{}).get("hc_kwh",0.0), UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
             FoxCatValueSensor(c, f"appareil_{safe}_tarif_actuel", f"🔌 {appliance_name} • Tarif actuel", "mdi:clock-check-outline", "accounting", lambda d: d["prices"].get("period","—")),
         ])
+    # V1.6.152 — collecte passive des signatures machines. Les données brutes
+    # restent dans le Store local; seules des synthèses légères sont exposées à HA.
+    for machine in c.machines:
+        mid = machine.machine_id
+        safe = mid.replace(" ", "_").lower()
+        name = machine.name
+        entities.extend([
+            FoxCatNumericSensor(c, f"apprentissage_{safe}_cycles", f"🧠 {name} • Cycles collectés", "mdi:brain", "machines", lambda d, aid=mid: d.get("machine_learning",{}).get(aid,{}).get("total_cycles",0)),
+            FoxCatValueSensor(c, f"apprentissage_{safe}_collecte", f"🧠 {name} • Collecte en cours", "mdi:record-rec", "machines", lambda d, aid=mid: "OUI" if (d.get("machine_learning",{}).get(aid,{}).get("current") or {}).get("active") else "NON"),
+            FoxCatNumericSensor(c, f"apprentissage_{safe}_energie_moyenne", f"🧠 {name} • Énergie moyenne 10 cycles", "mdi:chart-bell-curve-cumulative", "machines", lambda d, aid=mid: ((d.get("machine_learning",{}).get(aid,{}).get("average_energy_wh_10") or 0.0) / 1000.0), UnitOfEnergy.KILO_WATT_HOUR),
+            FoxCatNumericSensor(c, f"apprentissage_{safe}_duree_moyenne", f"🧠 {name} • Durée moyenne 10 cycles", "mdi:timer-outline", "machines", lambda d, aid=mid: ((d.get("machine_learning",{}).get(aid,{}).get("average_duration_s_10") or 0.0) / 60.0), "min"),
+        ])
+
     # V1.6.0 — classement fonctionnel officiel. Les kWh et pourcentages vont
     # dans Énergie; les coûts/valeurs monétaires vont dans Tarification.
     for entity in entities:

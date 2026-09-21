@@ -1,3 +1,51 @@
+# FoxCat Energy — Changelog
+
+## 1.6.152
+
+- Collecte passive locale des signatures électriques des machines (puissance, courant, tension, état et contexte énergétique).
+- Contexte cycles machines ajouté aux trames Energy Bus sans modifier les décisions des cœurs.
+- Correction de la collision `origin` sur Energy Bus.
+- Dashboard migré vers les bilans natifs FoxCat et ajout du prélèvement réseau journalier.
+- Tarifs dashboard contextualisés automatiquement en HP/HC ou dynamique.
+- PRI, EMS Core, machine à états et accounting décisionnel gelés / inchangés.
+- Audit anti-régression : 293 → 309 fonctions/méthodes, 0 supprimée.
+
+# FoxCat Energy 1.6.151 — Correctif PRI et commandes utilisateur
+
+## Corrigé
+
+- Correction du crash Onduleur Core provoqué par l'appel à `_classify_pri_grid()` absent en 1.6.150.
+- L'ACK réseau PRI classe désormais explicitement la trame en `OK`, `NOK_REINJECTION`, `NOK_PRELEVEMENT` ou `NOK_DONNEES`.
+- La sécurité thermique Boiler reste prioritaire même lorsque la régulation automatique est désactivée ou qu'un override utilisateur est actif.
+
+## Ajouté
+
+- Bouton **Démarrage utilisateur** créé automatiquement pour chaque machine FoxCat configurée.
+- Bouton **Arrêt utilisateur** créé automatiquement pour chaque machine FoxCat configurée.
+- Un démarrage machine utilisateur crée un **cycle protégé** d'origine `USER_BUTTON` afin que l'EMS ne coupe pas la machine à la trame suivante.
+- Boiler : boutons **Démarrage utilisateur**, **Arrêt utilisateur** et **Retour automatique EMS**.
+- Boiler : état `boiler_user_override` avec `AUTO`, `FORCE_ON`, `FORCE_OFF`.
+- Nouveau capteur **Boiler • Commande utilisateur**.
+- Les commandes utilisateur sont publiées sur Energy Bus et accusées comme prises en charge par EMS Core.
+- Les appels utilisateur vers les prises sont bornés à 3 secondes et indépendants de l'état d'exécution Boiler.
+- Les boutons utilisateur sont regroupés dans le device **FoxCat Energy – Fonctions utilisateur**.
+- Le registre FoxCat expose les commandes utilisateur Boiler et résout dynamiquement les commandes des machines configurées.
+
+## Sécurité
+
+- L'override utilisateur Boiler ne peut jamais dépasser la sécurité de température maximale.
+- Une fonction Boiler désactivée refuse un démarrage utilisateur.
+- Un arrêt sécurité reste autorisé même si la régulation FoxCat est désactivée.
+
+## Anti-régression
+
+- 1.6.150 : 286 fonctions/méthodes.
+- 1.6.151 : 293 fonctions/méthodes.
+- Supprimées : 0.
+- Ajoutées : 7.
+
+---
+
 # FoxCat Energy 1.6.150 — Cadencement réseau souverain et cœurs indépendants
 
 ## Objectif
