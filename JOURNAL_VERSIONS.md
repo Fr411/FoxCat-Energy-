@@ -1,3 +1,13 @@
+# FoxCat Energy 1.6.151 — Correctif PRI et commandes utilisateur
+
+- Correction `_classify_pri_grid` manquant.
+- Commandes utilisateur dynamiques pour toutes les machines.
+- Override Boiler utilisateur marche / arrêt / automatique.
+- Cycle machine utilisateur protégé.
+- 0 fonction supprimée par rapport à 1.6.150.
+
+---
+
 # FoxCat Energy 1.6.150 — Cadencement réseau souverain et cœurs indépendants
 
 ## Objectif

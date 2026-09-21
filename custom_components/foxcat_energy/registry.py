@@ -185,6 +185,10 @@ _native("boiler.execution_failure", "Boiler", "execution_failure_reason")
 _native("boiler.execution_retries", "Boiler", "execution_retries")
 _native("boiler.enabled", "Boiler", "boiler_enabled")
 _native("boiler.allow_hc", "Boiler", "boiler_allow_hc")
+_native("boiler.user_start", "Boiler", "boiler_demarrage_utilisateur")
+_native("boiler.user_stop", "Boiler", "boiler_arret_utilisateur")
+_native("boiler.user_auto", "Boiler", "boiler_retour_automatique")
+_native("boiler.user_override", "Boiler", "boiler_override_utilisateur")
 
 # Machines historiques + extensibles (les extensibles sont ajoutées dynamiquement au snapshot du registre).
 _config("machines.washer.switch", "Machines", CONF_WASHER_SOCKET, "switch.lave_linge_prise_1")
@@ -436,6 +440,21 @@ def resolve_registry(
             entity_id = binding.fallback_entity_id
         if entity_id:
             resolved[role] = entity_id
+
+    # Boutons utilisateurs des machines extensibles : rôles déterministes
+    # construits à partir des unique_id natifs FoxCat.
+    try:
+        from .machines import machine_definitions
+        for machine in machine_definitions(config):
+            safe_key = machine.machine_id.replace(" ", "_").lower()
+            start_key = f"machine_{safe_key}_demarrage_utilisateur"
+            stop_key = f"machine_{safe_key}_arret_utilisateur"
+            if native.get(start_key):
+                resolved[f"machines.{machine.machine_id}.user_start"] = native[start_key]
+            if native.get(stop_key):
+                resolved[f"machines.{machine.machine_id}.user_stop"] = native[stop_key]
+    except Exception:
+        pass
 
     return resolved
 
