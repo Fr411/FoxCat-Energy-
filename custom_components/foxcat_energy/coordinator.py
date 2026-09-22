@@ -72,6 +72,11 @@ from .const import (
     CONF_PRICE_MIN_TODAY,
     CONF_PRICE_MIN_TOMORROW,
     CONF_PRICE_NEXT,
+    CONF_PRICE_FORECAST_IMPORT,
+    CONF_PRICE_FORECAST_EXPORT,
+    CONF_DYNAMIC_EXPORT_SIGN_CONVENTION,
+    DYNAMIC_EXPORT_NEGATIVE_IS_REVENUE,
+    DYNAMIC_EXPORT_POSITIVE_IS_REVENUE,
     CONF_TARIFF_HP_START_1,
     CONF_TARIFF_HP_END_1,
     CONF_TARIFF_HP_START_2,
@@ -121,6 +126,14 @@ from .engine.load_guard import (
     protected_cycle_boiler_allowed_stable,
 )
 from .engine.tariff import price_status, tariff_boundaries, tariff_period
+from .economic_optimizer import (
+    PricePoint,
+    build_hphc_points,
+    evaluate_market,
+    extract_price_points,
+    merge_price_points,
+    recommend_flexible_load,
+)
 from .machines import MachineDefinition, machine_allowed, machine_definitions, schedule_boundaries
 from .machine_cycle import MachineCycleManager
 from .machine_learning import MachineLearningRecorder
@@ -511,6 +524,22 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if price_entities:
             self._unsubs.append(async_track_state_change_event(self.hass, price_entities, self._on_price_event))
 
+        # V1.6.153 : les séries de prix futurs alimentent uniquement le
+        # comparateur économique. Elles ne créent aucune trame EMS/PRI et ne
+        # publient rien sur Energy Bus.
+        economic_price_entities = [
+            eid for eid in [
+                self.config.get(CONF_PRICE_FORECAST_IMPORT),
+                self.config.get(CONF_PRICE_FORECAST_EXPORT),
+            ] if eid and eid not in price_entities
+        ]
+        if economic_price_entities:
+            self._unsubs.append(
+                async_track_state_change_event(
+                    self.hass, economic_price_entities, self._on_economic_price_event
+                )
+            )
+
         # Les bornes HP/HC sont configurables. Chaque transition force une
         # nouvelle acquisition pour éviter une décision sur l'ancien tarif.
         for hour, minute in sorted(tariff_boundaries(self.settings)):
@@ -845,6 +874,11 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.async_create_task(self.async_handle_price_change())
 
     @callback
+    def _on_economic_price_event(self, event: Event) -> None:
+        """Rafraîchit uniquement le comparateur économique hors Energy Bus."""
+        self.async_set_updated_data(self._build_data())
+
+    @callback
     def _on_tariff_boundary(self, now: datetime) -> None:
         self.reset_core("Transition tarifaire : nouvelle acquisition demandée.")
         self.async_set_updated_data(self._build_data())
@@ -1027,10 +1061,15 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         export_value: float | None
         if regime == TARIFF_DYNAMIC:
             active_buy = current
-            # Luminus Dynamic expose historiquement un prix d'injection signé :
-            # une valeur négative signifie une rémunération. On normalise ici
-            # en valeur économique positive pour les capteurs de coût.
-            export_value = -injection if injection is not None else None
+            # Normalisation explicite du signe de l'export dynamique. Le défaut
+            # conserve la convention Luminus historique : négatif = rémunération.
+            export_sign = str(self.config.get(CONF_DYNAMIC_EXPORT_SIGN_CONVENTION, DYNAMIC_EXPORT_NEGATIVE_IS_REVENUE))
+            if injection is None:
+                export_value = None
+            elif export_sign == DYNAMIC_EXPORT_POSITIVE_IS_REVENUE:
+                export_value = injection
+            else:
+                export_value = -injection
             status = price_status(current, pmin, pmax, avg)
             model = "DYNAMIQUE"
         else:
@@ -1086,11 +1125,155 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "active_buy_label": active_label,
             "next_buy_label": next_label,
             "export_value": export_value,
+            "export_sign_convention": str(self.config.get(CONF_DYNAMIC_EXPORT_SIGN_CONVENTION, DYNAMIC_EXPORT_NEGATIVE_IS_REVENUE)),
             "negative_purchase": bool(regime == TARIFF_DYNAMIC and active_buy is not None and active_buy < negative_threshold),
             "dynamic_compatible": regime == TARIFF_DYNAMIC,
             "import_cost_rate_eur_h": import_cost_rate,
             "export_value_rate_eur_h": export_value_rate,
             "net_cost_rate_eur_h": net_cost_rate,
+        }
+
+
+    def _economic_series_from_entity(
+        self, entity_id: str | None, *, source: str, now: datetime, horizon_hours: int
+    ) -> list[PricePoint]:
+        """Lit une série de prix depuis les attributs d'une entité HA.
+
+        Aucun événement n'est publié sur Energy Bus. Le format est volontairement
+        générique afin de rester compatible avec plusieurs intégrations tarifaires.
+        """
+        if not entity_id:
+            return []
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return []
+        raw: dict[str, Any] = dict(state.attributes)
+        # Certaines intégrations exposent la série dans l'état lui-même sous
+        # forme JSON/list; dans ce cas on laisse également le parseur l'essayer.
+        raw["entity_state"] = state.state
+        return extract_price_points(raw, now, source=source, horizon_hours=horizon_hours)
+
+    def _economic_import_points(
+        self, prices: dict[str, Any], now: datetime
+    ) -> list[PricePoint]:
+        horizon = int(float(self.settings.get("economic_horizon_hours", 24.0)))
+        regime = str(prices.get("regime", TARIFF_TOU))
+        if regime == TARIFF_TOU:
+            return build_hphc_points(
+                now,
+                self.settings,
+                prices.get("hp_price") if isinstance(prices.get("hp_price"), (int, float)) else None,
+                prices.get("hc_price") if isinstance(prices.get("hc_price"), (int, float)) else None,
+                horizon_hours=horizon,
+            )
+
+        source_entity = self.config.get(CONF_PRICE_FORECAST_IMPORT) or self.config.get(CONF_PRICE_CURRENT)
+        series = self._economic_series_from_entity(
+            source_entity, source="DYNAMIC_IMPORT", now=now, horizon_hours=horizon
+        )
+        current = prices.get("active_buy")
+        nxt = prices.get("next_buy")
+        manual: list[PricePoint] = []
+        slot = now.replace(minute=0, second=0, microsecond=0)
+        if isinstance(current, (int, float)):
+            manual.append(PricePoint(slot, float(current), "DYNAMIC_CURRENT"))
+        if isinstance(nxt, (int, float)):
+            manual.append(PricePoint(slot + timedelta(hours=1), float(nxt), "DYNAMIC_NEXT"))
+        return merge_price_points(series, manual)
+
+    def _economic_export_points(
+        self, prices: dict[str, Any], now: datetime
+    ) -> list[PricePoint]:
+        """Retourne la VALEUR économique de l'export, positive = recette."""
+        horizon = int(float(self.settings.get("economic_horizon_hours", 24.0)))
+        regime = str(prices.get("regime", TARIFF_TOU))
+        if regime == TARIFF_TOU:
+            value = prices.get("export_value")
+            if not isinstance(value, (int, float)):
+                return []
+            return [
+                PricePoint(now + timedelta(hours=hour), float(value), "HP_HC_EXPORT")
+                for hour in range(horizon + 1)
+            ]
+
+        source_entity = self.config.get(CONF_PRICE_FORECAST_EXPORT) or self.config.get(CONF_PRICE_INJECTION)
+        raw = self._economic_series_from_entity(
+            source_entity, source="DYNAMIC_EXPORT_RAW", now=now, horizon_hours=horizon
+        )
+        # Même convention explicite que prices().
+        export_sign = str(self.config.get(CONF_DYNAMIC_EXPORT_SIGN_CONVENTION, DYNAMIC_EXPORT_NEGATIVE_IS_REVENUE))
+        factor = 1.0 if export_sign == DYNAMIC_EXPORT_POSITIVE_IS_REVENUE else -1.0
+        normalised = [PricePoint(p.at, factor * float(p.price), "DYNAMIC_EXPORT") for p in raw]
+        current = prices.get("export_value")
+        if isinstance(current, (int, float)):
+            normalised.append(
+                PricePoint(now.replace(minute=0, second=0, microsecond=0), float(current), "DYNAMIC_EXPORT_CURRENT")
+            )
+        return merge_price_points(normalised)
+
+    def _economic_view(
+        self,
+        snapshot: EnergySnapshot | None = None,
+        *,
+        prices: dict[str, Any] | None = None,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Construit la décision économique hors Energy Bus.
+
+        Cette couche peut autoriser/report­er le NOUVEAU démarrage automatique
+        d'une charge flexible. Elle ne modifie ni PRI, ni Onduleur Core, ni
+        machine à états des cycles et ne publie aucun message inter-cœurs.
+        """
+        now = now or dt_util.now()
+        snap = snapshot or self.snapshot()
+        tariff = prices or self.prices()
+        import_points = self._economic_import_points(tariff, now)
+        export_points = self._economic_export_points(tariff, now)
+        decision = evaluate_market(
+            now=now,
+            snapshot=snap,
+            prices=tariff,
+            settings=self.settings,
+            import_points=import_points,
+        ).as_dict()
+
+        learning = self.machine_learning.view()
+        cycles = self.machine_cycle_manager.snapshot(now)
+        recommendations: dict[str, Any] = {}
+        for machine in self.machines:
+            profile = learning.get(machine.machine_id, {})
+            duration_s = profile.get("average_duration_s_10")
+            energy_wh = profile.get("average_energy_wh_10")
+            cycle = cycles.get(machine.machine_id, {})
+            recommendations[machine.machine_id] = recommend_flexible_load(
+                now=now,
+                snapshot=snap,
+                prices=tariff,
+                settings=self.settings,
+                import_points=import_points,
+                duration_hours=(float(duration_s) / 3600.0) if isinstance(duration_s, (int, float)) and duration_s > 0 else None,
+                energy_kwh=(float(energy_wh) / 1000.0) if isinstance(energy_wh, (int, float)) and energy_wh > 0 else None,
+                active=bool(cycle.get("protected", False)),
+            )
+            recommendations[machine.machine_id]["name"] = machine.name
+            recommendations[machine.machine_id]["profile_cycles"] = int(profile.get("total_cycles", 0) or 0)
+
+        best_export = max(export_points, key=lambda p: p.price) if export_points else None
+        worst_export = min(export_points, key=lambda p: p.price) if export_points else None
+        return {
+            "decision": decision,
+            "machines": recommendations,
+            "forecast": {
+                "import_points": len(import_points),
+                "export_points": len(export_points),
+                "best_export_value_eur_kwh": best_export.price if best_export else None,
+                "best_export_at": best_export.at.isoformat() if best_export else None,
+                "worst_export_value_eur_kwh": worst_export.price if worst_export else None,
+                "worst_export_at": worst_export.at.isoformat() if worst_export else None,
+                "horizon_hours": int(float(self.settings.get("economic_horizon_hours", 24.0))),
+                "source_import": self.config.get(CONF_PRICE_FORECAST_IMPORT) or ("HP/HC calculé" if str(tariff.get("regime")) == TARIFF_TOU else self.config.get(CONF_PRICE_CURRENT)),
+                "source_export": self.config.get(CONF_PRICE_FORECAST_EXPORT) or ("Prix fixe" if str(tariff.get("regime")) == TARIFF_TOU else self.config.get(CONF_PRICE_INJECTION)),
+            },
         }
 
 
@@ -1942,23 +2125,36 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _machine_schedule_boundaries(self) -> set[tuple[int, int]]:
         return schedule_boundaries(self.machines)
 
-    def _tariff_start_favorable(self) -> bool:
-        """Hiérarchie de démarrage automatique, indépendante des prix manuels."""
+    def _tariff_start_favorable(self, machine: MachineDefinition | None = None, economic_view: dict[str, Any] | None = None) -> bool:
+        """Décide si une NOUVELLE charge flexible peut démarrer.
+
+        V1.6.153 : le comparateur économique est consulté directement, sans
+        passer par Energy Bus. Les cycles déjà actifs/protégés restent gérés
+        par la règle souveraine de ``async_reconcile_machines``. Si
+        l'optimiseur est désactivé, le comportement historique est conservé.
+        """
         prices = self.prices()
         regime = str(self.settings.get("tariff_regime", TARIFF_TOU))
-        if regime == TARIFF_DYNAMIC:
-            current = prices.get("current")
-            nxt = prices.get("next")
-            avg = prices.get("avg_today")
-            if not isinstance(current, (int, float)):
-                return False
-            if isinstance(nxt, (int, float)) and current > nxt:
-                return False
-            if isinstance(avg, (int, float)) and current > avg:
-                return False
-            return True
-        # HP/HC : HC favorable, HP défavorable.
-        return str(prices.get("period")) == "HC"
+        if not bool(self.settings.get("economic_optimizer_enabled", True)):
+            if regime == TARIFF_DYNAMIC:
+                current = prices.get("current")
+                nxt = prices.get("next")
+                avg = prices.get("avg_today")
+                if not isinstance(current, (int, float)):
+                    return False
+                if isinstance(nxt, (int, float)) and current > nxt:
+                    return False
+                if isinstance(avg, (int, float)) and current > avg:
+                    return False
+                return True
+            return str(prices.get("period")) == "HC"
+
+        view = economic_view or self._economic_view(self.snapshot(), prices=prices)
+        if machine is not None:
+            rec = view.get("machines", {}).get(machine.machine_id)
+            if isinstance(rec, dict):
+                return bool(rec.get("allow_start", False))
+        return bool(view.get("decision", {}).get("flexible_start", False))
 
     def _schedule_learning_save(self) -> None:
         if self._learning_save_task is None or self._learning_save_task.done():
@@ -2194,6 +2390,10 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         now = dt_util.now()
         self._refresh_machine_cycles()
+        economic_view = (
+            self._economic_view(self.snapshot(), prices=self.prices(), now=now)
+            if bool(self.settings.get("economic_optimizer_enabled", True)) else None
+        )
         for machine in self.machines:
             socket = machine.switch_entity
             if not socket:
@@ -2205,7 +2405,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Pendant un délestage, seules les machines explicitement délestables
             # et sans cycle protégé actif sont coupées.
             high_load_block = bool(self.load_shed_state.get("active")) and machine.sheddable and not cycle_active
-            tariff_ok = self._tariff_start_favorable()
+            tariff_ok = self._tariff_start_favorable(machine, economic_view=economic_view)
             # Un cycle utilisateur/protégé reste prioritaire. Seul un NOUVEAU
             # démarrage automatique est bloqué en période défavorable.
             should_on = cycle_active or (management and allowed and tariff_ok and not high_load_block)
@@ -2857,6 +3057,8 @@ Cherche une fenêtre solaire exploitable avant la prochaine échéance énergét
         level = RRCR_CODE_TO_LEVEL.get(rrcr_code, -1)
         self.pri_state["current_level"] = level
         self.pri_state["code"] = rrcr_code
+        prices = self.prices()
+        economic = self._economic_view(snap, prices=prices)
         return {
             "snapshot": snap,
             "settings": dict(self.settings),
@@ -2867,7 +3069,8 @@ Cherche une fenêtre solaire exploitable avant la prochaine échéance énergét
             "machine_cycles": self.machine_cycle_manager.snapshot(dt_util.now()),
             "machine_learning": self.machine_learning.view(),
             "solar": self.solar_forecast,
-            "prices": self.prices(),
+            "prices": prices,
+            "economic": economic,
             "accounting": self.accounting.view(),
             "legacy_conflict": self._legacy_conflict(),
             "load_shed": dict(self.load_shed_state),

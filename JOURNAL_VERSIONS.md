@@ -126,3 +126,14 @@ Les fonctions historiques de 1.6.1-101 sont conservées. La voie legacy sans cap
 - Moteurs PRI, EMS et machine à états gelés.
 - Audit : 309 fonctions/méthodes, 0 suppression depuis 1.6.151.
 
+
+## 1.6.153 — Comparateur économique HP/HC & dynamique
+- Nouveau comparateur économique local, séparé d'Energy Bus.
+- HP/HC : comparaison déterministe des créneaux ComfyFlex.
+- Dynamique : comparaison actuel/H+1 et séries futures optionnelles import/export.
+- Coût d'opportunité du solaire et valeur de réinjection pris en compte.
+- Profils machines utilisés pour estimer durée/énergie d'un cycle.
+- Nouveau capteur « Décision économique EMS » et recommandations par machine.
+- Compensation : onduleur 100 % direct.
+- Injection facturée : moteur PRI prédictif inchangé.
+- Audit : 309 → 331 fonctions/méthodes, 0 suppression.

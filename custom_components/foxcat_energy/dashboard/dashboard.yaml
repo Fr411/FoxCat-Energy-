@@ -17538,6 +17538,9 @@ views:
                   const nextPriceLabel = stateOf('[[foxcat:pricing.next_label]]', 'TARIF SUIVANT');
                   const estimatedCost = Math.max(numberOf('[[foxcat:pricing.cost_today]]', 0), 0);
                   const solarSaving = Math.max(numberOf('[[foxcat:pricing.solar_gain_today]]', 0), 0);
+                  const economicDecision = stateOf('[[foxcat:pricing.economic_decision]]', '—');
+                  const economicBestSlot = stateOf('[[foxcat:pricing.economic_best_slot]]', 'Maintenant');
+                  const economicSaving = Math.max(numberOf('[[foxcat:pricing.economic_saving]]', 0), 0);
 
                   let priceState = stateOf('[[foxcat:pricing.status]]', 'NORMAL');
                   let priceColor = '#facc15';
@@ -18359,6 +18362,30 @@ views:
 
                           </div>
 
+
+                          <div class="row">
+
+                            <span>
+                              Décision économique EMS
+                            </span>
+
+                            <strong>
+                              ${economicDecision}
+                            </strong>
+
+                          </div>
+
+                          <div class="row">
+
+                            <span>
+                              Meilleur créneau
+                            </span>
+
+                            <strong>
+                              ${economicBestSlot}${economicSaving > 0 ? ` · ${economicSaving.toFixed(3)} €/kWh` : ''}
+                            </strong>
+
+                          </div>
 
                           <div class="row saving-row">
 

@@ -61,6 +61,11 @@ from .const import (
     CONF_PRICE_MIN_TOMORROW,
     CONF_PRICE_NEXT,
     CONF_PRICE_TOMORROW_AVAILABLE,
+    CONF_PRICE_FORECAST_IMPORT,
+    CONF_PRICE_FORECAST_EXPORT,
+    CONF_DYNAMIC_EXPORT_SIGN_CONVENTION,
+    DYNAMIC_EXPORT_NEGATIVE_IS_REVENUE,
+    DYNAMIC_EXPORT_POSITIVE_IS_REVENUE,
     CONF_PRI_L1,
     CONF_PRI_L2,
     CONF_PRI_L3,
@@ -235,6 +240,18 @@ def _machine_choice_schema(records: list[dict[str, Any]]) -> vol.Schema:
     choices = {str(item.get("id")): str(item.get("name") or item.get("id")) for item in records if item.get("id")}
     return vol.Schema({vol.Required("machine_id"): vol.In(choices)})
 
+def _dynamic_export_sign_selector() -> selector.SelectSelector:
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=[
+                {"value": DYNAMIC_EXPORT_NEGATIVE_IS_REVENUE, "label": "Luminus : négatif = rémunération"},
+                {"value": DYNAMIC_EXPORT_POSITIVE_IS_REVENUE, "label": "Positif = rémunération"},
+            ],
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
 def _pricing_schema() -> vol.Schema:
     return vol.Schema(
         {
@@ -248,6 +265,9 @@ def _pricing_schema() -> vol.Schema:
             _optional(CONF_PRICE_MAX_TOMORROW, "sensor.luminus_luminus_dynamic_wallonia_maximum_demain"): _entity("sensor"),
             _optional(CONF_PRICE_AVG_TOMORROW, "sensor.luminus_luminus_dynamic_wallonia_moyenne_demain"): _entity("sensor"),
             _optional(CONF_PRICE_TOMORROW_AVAILABLE, "binary_sensor.luminus_luminus_dynamic_wallonia_prix_de_demain_disponibles"): _entity("binary_sensor"),
+            _optional(CONF_PRICE_FORECAST_IMPORT): _entity("sensor"),
+            _optional(CONF_PRICE_FORECAST_EXPORT): _entity("sensor"),
+            vol.Required(CONF_DYNAMIC_EXPORT_SIGN_CONVENTION, default=DYNAMIC_EXPORT_NEGATIVE_IS_REVENUE): _dynamic_export_sign_selector(),
         }
     )
 

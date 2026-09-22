@@ -40,6 +40,8 @@ from .const import (
     CONF_PRICE_MIN_TODAY,
     CONF_PRICE_MIN_TOMORROW,
     CONF_PRICE_NEXT,
+    CONF_PRICE_FORECAST_IMPORT,
+    CONF_PRICE_FORECAST_EXPORT,
     CONF_PRI_L1,
     CONF_PRI_L2,
     CONF_PRI_L3,
@@ -212,10 +214,15 @@ _native("pricing.active_buy", "Tarification", "prix_achat_actif")
 _native("pricing.next_buy", "Tarification", "prix_achat_suivant")
 _native("pricing.active_label", "Tarification", "libelle_prix_actif")
 _native("pricing.next_label", "Tarification", "libelle_prix_suivant")
+_native("pricing.export_sign_convention", "Tarification", "convention_prix_reinjection")
 _native("pricing.cost_today", "Tarification", "bilan_cout_reseau_jour")
 _native("pricing.export_value_today", "Tarification", "bilan_valeur_injection_jour")
 _native("pricing.net_today", "Tarification", "bilan_cout_net_jour")
 _native("pricing.solar_gain_today", "Tarification", "bilan_gain_solaire_jour")
+_native("pricing.economic_decision", "Tarification", "decision_economique_ems")
+_native("pricing.economic_best_future", "Tarification", "economique_meilleur_prix_futur")
+_native("pricing.economic_best_slot", "Tarification", "economique_meilleur_creneau")
+_native("pricing.economic_saving", "Tarification", "economique_economie_potentielle")
 _config("pricing.source.current", "Tarification", CONF_PRICE_CURRENT, "sensor.luminus_luminus_comfyflex_wallonia_prix_actuel")
 _config("pricing.source.next", "Tarification", CONF_PRICE_NEXT)
 _config("pricing.source.injection", "Tarification", CONF_PRICE_INJECTION)
@@ -228,6 +235,8 @@ _config("pricing.source.avg_tomorrow", "Tarification", CONF_PRICE_AVG_TOMORROW)
 _config("pricing.source.hp", "Tarification", CONF_TARIFF_HP_PRICE_SENSOR)
 _config("pricing.source.hc", "Tarification", CONF_TARIFF_HC_PRICE_SENSOR)
 _config("pricing.source.fixed_injection", "Tarification", CONF_TARIFF_FIXED_INJECTION_PRICE_SENSOR)
+_config("pricing.source.forecast_import", "Tarification", CONF_PRICE_FORECAST_IMPORT)
+_config("pricing.source.forecast_export", "Tarification", CONF_PRICE_FORECAST_EXPORT)
 
 # Métronome
 _native("metronome.status", "Métronome", "metronome_statut")
