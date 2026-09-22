@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 DOMAIN = "foxcat_energy"
-VERSION = "1.6.152"
+VERSION = "1.6.153"
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
 
 # Ordre fonctionnel officiel FoxCat Energy. Cet ordre est partagé par les
@@ -88,6 +88,11 @@ CONF_PRICE_MIN_TOMORROW = "price_min_tomorrow"
 CONF_PRICE_MAX_TOMORROW = "price_max_tomorrow"
 CONF_PRICE_AVG_TOMORROW = "price_avg_tomorrow"
 CONF_PRICE_TOMORROW_AVAILABLE = "price_tomorrow_available"
+CONF_PRICE_FORECAST_IMPORT = "price_forecast_import"
+CONF_PRICE_FORECAST_EXPORT = "price_forecast_export"
+CONF_DYNAMIC_EXPORT_SIGN_CONVENTION = "dynamic_export_sign_convention"
+DYNAMIC_EXPORT_NEGATIVE_IS_REVENUE = "negative_is_revenue"
+DYNAMIC_EXPORT_POSITIVE_IS_REVENUE = "positive_is_revenue"
 
 # Configuration des plages tarifaires fixes / compensation.
 CONF_TARIFF_HP_START_1 = "tariff_hp_start_1"
@@ -188,6 +193,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "dishwasher_enabled": True,
     "solar_advisor_enabled": True,
     "dynamic_negative_price_charge_enabled": True,
+    "economic_optimizer_enabled": True,
     "high_load_shed_enabled": False,
     "tariff_regime": TARIFF_TOU,
     "network_policy": NETWORK_POLICY_COMPENSATION,
@@ -246,6 +252,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "dynamic_price_significant_delta": 0.01,
     "dynamic_injection_lucrative_threshold": -0.0001,
     "dynamic_grid_charge_threshold_eur_kwh": 0.0,
+    "economic_horizon_hours": 24.0,
+    "economic_min_saving_eur_kwh": 0.02,
+    "economic_export_margin_eur_kwh": 0.01,
+    "economic_solar_surplus_min_w": 250.0,
     "pri_boiler_settle_s": 30.0,
     "high_load_trigger_w": 5000.0,
     "high_load_release_w": 3500.0,
@@ -302,6 +312,10 @@ NUMBER_DEFINITIONS = {
     "dynamic_price_significant_delta": ("Écart de prix significatif", 0, 1, 0.001, "€/kWh", "mdi:cash-sync"),
     "dynamic_injection_lucrative_threshold": ("Seuil injection rémunératrice", -1, 1, 0.0001, "€/kWh", "mdi:cash-plus"),
     "dynamic_grid_charge_threshold_eur_kwh": ("Seuil charge réseau prix négatif", -1, 0, 0.001, "€/kWh", "mdi:transmission-tower-import"),
+    "economic_horizon_hours": ("Horizon comparateur économique", 1, 48, 1, "h", "mdi:timeline-clock-outline"),
+    "economic_min_saving_eur_kwh": ("Économie minimale pour reporter", 0, 1, 0.001, "€/kWh", "mdi:cash-clock"),
+    "economic_export_margin_eur_kwh": ("Marge export économique", 0, 1, 0.001, "€/kWh", "mdi:transmission-tower-export"),
+    "economic_solar_surplus_min_w": ("Surplus solaire minimum économique", 0, 5000, 50, "W", "mdi:solar-power-variant"),
     "tariff_fixed_injection_eur_kwh": ("Prix fixe de réinjection", -1, 2, 0.001, "€/kWh", "mdi:cash-plus"),
     "pri_boiler_settle_s": ("Temporisation PRI après action boiler", 0, 180, 5, "s", "mdi:timer-sync-outline"),
     "high_load_trigger_w": ("Seuil haute consommation", 1000, 20000, 100, "W", "mdi:flash-alert"),
@@ -321,6 +335,7 @@ SWITCH_DEFINITIONS = {
     "dishwasher_enabled": ("Gestion lave-vaisselle", "mdi:dishwasher"),
     "solar_advisor_enabled": ("Conseiller solaire EMS 2", "mdi:weather-sunny-alert"),
     "dynamic_negative_price_charge_enabled": ("Charge réseau si prix dynamique négatif", "mdi:transmission-tower-import"),
+    "economic_optimizer_enabled": ("Optimisation économique des charges flexibles", "mdi:finance"),
     "high_load_shed_enabled": ("Délestage haute consommation", "mdi:home-lightning-bolt-outline"),
 }
 

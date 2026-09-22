@@ -103,9 +103,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         FoxCatValueSensor(c, "libelle_prix_actif", "Libellé prix actif", "mdi:label-outline", "pricing", lambda d: d["prices"].get("active_buy_label", "—")),
         FoxCatValueSensor(c, "libelle_prix_suivant", "Libellé prix suivant", "mdi:label-multiple-outline", "pricing", lambda d: d["prices"].get("next_buy_label", "—")),
         FoxCatNumericSensor(c, "valeur_reinjection", "Valeur économique de la réinjection", "mdi:transmission-tower-export", "pricing", lambda d: d["prices"].get("export_value"), "€/kWh"),
+        FoxCatValueSensor(c, "convention_prix_reinjection", "Convention prix de réinjection", "mdi:plus-minus-variant", "pricing", lambda d: d["prices"].get("export_sign_convention", "—")),
         FoxCatNumericSensor(c, "cout_prelevement_instantane", "Coût instantané du prélèvement", "mdi:cash-minus", "pricing", lambda d: d["prices"].get("import_cost_rate_eur_h"), "€/h"),
         FoxCatNumericSensor(c, "valeur_reinjection_instantanee", "Valeur instantanée de la réinjection", "mdi:cash-plus", "pricing", lambda d: d["prices"].get("export_value_rate_eur_h"), "€/h"),
         FoxCatNumericSensor(c, "solde_reseau_instantane", "Solde financier instantané réseau", "mdi:scale-balance", "pricing", lambda d: d["prices"].get("net_cost_rate_eur_h"), "€/h"),
+        FoxCatEconomicDecisionSensor(c),
+        FoxCatNumericSensor(c, "economique_meilleur_prix_futur", "Meilleur prix d'achat futur", "mdi:cash-clock", "pricing", lambda d: d.get("economic", {}).get("decision", {}).get("best_future_buy_eur_kwh"), "€/kWh"),
+        FoxCatNumericSensor(c, "economique_economie_potentielle", "Économie potentielle en reportant", "mdi:piggy-bank-outline", "pricing", lambda d: d.get("economic", {}).get("decision", {}).get("saving_vs_now_eur_kwh"), "€/kWh"),
+        FoxCatValueSensor(c, "economique_meilleur_creneau", "Meilleur créneau économique", "mdi:calendar-clock", "pricing", lambda d: d.get("economic", {}).get("decision", {}).get("best_future_at") or "Maintenant"),
         FoxCatNumericSensor(c, "bilan_conso_jour", "🏠 Maison • Consommation aujourd’hui", "mdi:home-lightning-bolt", "accounting", lambda d: d["accounting"]["today"]["house_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
         FoxCatNumericSensor(c, "bilan_pv_jour", "☀️ PV • Production aujourd’hui", "mdi:solar-power", "accounting", lambda d: d["accounting"]["today"]["pv_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
         FoxCatNumericSensor(c, "bilan_autoconso_jour", "☀️ PV • Énergie autoconsommée aujourd’hui", "mdi:home-import-outline", "accounting", lambda d: d["accounting"]["today"]["self_consumed_kwh"], UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
@@ -185,6 +190,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             FoxCatValueSensor(c, f"apprentissage_{safe}_collecte", f"🧠 {name} • Collecte en cours", "mdi:record-rec", "machines", lambda d, aid=mid: "OUI" if (d.get("machine_learning",{}).get(aid,{}).get("current") or {}).get("active") else "NON"),
             FoxCatNumericSensor(c, f"apprentissage_{safe}_energie_moyenne", f"🧠 {name} • Énergie moyenne 10 cycles", "mdi:chart-bell-curve-cumulative", "machines", lambda d, aid=mid: ((d.get("machine_learning",{}).get(aid,{}).get("average_energy_wh_10") or 0.0) / 1000.0), UnitOfEnergy.KILO_WATT_HOUR),
             FoxCatNumericSensor(c, f"apprentissage_{safe}_duree_moyenne", f"🧠 {name} • Durée moyenne 10 cycles", "mdi:timer-outline", "machines", lambda d, aid=mid: ((d.get("machine_learning",{}).get(aid,{}).get("average_duration_s_10") or 0.0) / 60.0), "min"),
+            FoxCatValueSensor(c, f"economique_{safe}_decision", f"💶 {name} • Choix économique", "mdi:cash-clock", "machines", lambda d, aid=mid: d.get("economic",{}).get("machines",{}).get(aid,{}).get("label", "Indisponible")),
         ])
 
     # V1.6.0 — classement fonctionnel officiel. Les kWh et pourcentages vont
@@ -201,6 +207,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 entity._foxcat_device_name = None
 
     async_add_entities(entities)
+
+
+class FoxCatEconomicDecisionSensor(FoxCatEntity, SensorEntity):
+    """Décision lisible du comparateur économique FoxCat.
+
+    Cette entité ne publie rien sur Energy Bus. Ses attributs expliquent le
+    raisonnement tarifaire et les recommandations par machine.
+    """
+
+    def __init__(self, coordinator: FoxCatEnergyCoordinator) -> None:
+        super().__init__(
+            coordinator,
+            "decision_economique_ems",
+            "Décision économique EMS",
+            "mdi:finance",
+            "pricing",
+        )
+
+    @property
+    def native_value(self) -> str:
+        decision = (self.coordinator.data or {}).get("economic", {}).get("decision", {})
+        return str(decision.get("label") or decision.get("code") or "Indisponible")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        economic = (self.coordinator.data or {}).get("economic", {})
+        decision = dict(economic.get("decision", {}) or {})
+        return {
+            "code": decision.get("code"),
+            "raison": decision.get("reason"),
+            "regime": decision.get("regime"),
+            "confiance": decision.get("confidence"),
+            "demarrage_charge_flexible_autorise": decision.get("flexible_start"),
+            "favorise_autoconsommation": decision.get("prefer_self_consumption"),
+            "favorise_reinjection": decision.get("prefer_export"),
+            "prix_achat_actuel_eur_kwh": decision.get("current_buy_eur_kwh"),
+            "valeur_reinjection_eur_kwh": decision.get("export_value_eur_kwh"),
+            "meilleur_prix_futur_eur_kwh": decision.get("best_future_buy_eur_kwh"),
+            "meilleur_creneau": decision.get("best_future_at"),
+            "economie_potentielle_eur_kwh": decision.get("saving_vs_now_eur_kwh"),
+            "horizon_heures": decision.get("horizon_hours"),
+            "points_prix": decision.get("forecast_points"),
+            "application": decision.get("application"),
+            "prevision": economic.get("forecast", {}),
+            "machines": economic.get("machines", {}),
+        }
 
 
 class FoxCatRegistrySensor(FoxCatEntity, SensorEntity):

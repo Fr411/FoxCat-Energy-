@@ -96,14 +96,15 @@ class InverterCore:
         max_solar = current > 0 and not pv_at_limit
         more_possible = current < 100 and pv_at_limit
 
-        # Compensation : comportement historique conservé. Le réseau sert de
-        # tampon et FoxCat libère progressivement l'onduleur vers 100 %.
+        # Compensation : règle économique souveraine. Toute la production PV
+        # disponible est libérée immédiatement ; le réseau sert de tampon.
+        # Aucun calcul d'injection ne doit brider l'onduleur dans cette politique.
         if network_policy == NETWORK_COMPENSATION:
-            target = min(current + step_pct, 100) if current < 100 else 100
+            target = 100
             return InverterDecision(
                 current, target,
                 "LIBERATION" if target > current else "MAINTIEN",
-                "Compensation : onduleur libéré progressivement vers 100 %, réseau utilisé comme tampon.",
+                "Compensation : onduleur libéré à 100 %, réseau utilisé comme tampon.",
                 limit_w, ratio, pv_at_limit, more_possible, max_solar,
             )
 

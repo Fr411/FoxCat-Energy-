@@ -63,18 +63,21 @@
       },
       "pricing": {
         "title": "FoxCat Energy – Tarification dynamique",
-        "description": "Associe les capteurs du contrat dynamique : prix d’achat, prix suivant, prix de réinjection et statistiques min/max/moyenne. Les prix fixes HP/HC sont configurés sur l’écran suivant.",
+        "description": "Sources tarifaires dynamiques. Les séries futures optionnelles servent uniquement au comparateur économique et ne publient rien sur Energy Bus.",
         "data": {
-          "price_current": "Prix actuel",
-          "price_next": "Prix heure suivante",
-          "price_injection": "Prix d'injection",
-          "price_min_today": "Minimum aujourd'hui",
-          "price_max_today": "Maximum aujourd'hui",
-          "price_avg_today": "Moyenne aujourd'hui",
-          "price_min_tomorrow": "Minimum demain",
-          "price_max_tomorrow": "Maximum demain",
-          "price_avg_tomorrow": "Moyenne demain",
-          "price_tomorrow_available": "Prix de demain disponibles"
+          "price_current": "Prix dynamique actuel",
+          "price_next": "Prix dynamique heure suivante",
+          "price_injection": "Prix dynamique de réinjection brut",
+          "price_min_today": "Prix minimum aujourd’hui",
+          "price_max_today": "Prix maximum aujourd’hui",
+          "price_avg_today": "Prix moyen aujourd’hui",
+          "price_min_tomorrow": "Prix minimum demain",
+          "price_max_tomorrow": "Prix maximum demain",
+          "price_avg_tomorrow": "Prix moyen demain",
+          "price_tomorrow_available": "Disponibilité des prix de demain",
+          "price_forecast_import": "Série de prix futurs d’achat (optionnel)",
+          "price_forecast_export": "Série de prix futurs de réinjection (optionnel)",
+          "dynamic_export_sign_convention": "Convention du signe du prix de réinjection dynamique"
         }
       },
       "solar": {
@@ -97,16 +100,16 @@
       },
       "hphc": {
         "title": "FoxCat Energy – Tarifs HP/HC",
-        "description": "Configure les prix HP/HC depuis des entités Home Assistant ou, à défaut, avec des valeurs manuelles. Configure aussi le prix fixe de réinjection et les deux plages HP.",
+        "description": "Tarifs ComfyFlex HP/HC, prix de reprise et plages horaires utilisés par le comparateur économique.",
         "data": {
-          "tariff_hp_price_sensor": "Entité prix heures pleines (HP)",
-          "tariff_hc_price_sensor": "Entité prix heures creuses (HC)",
-          "tariff_fixed_injection_price_sensor": "Entité prix fixe de réinjection",
-          "tariff_fixed_injection_eur_kwh": "Prix fixe de réinjection – €/kWh",
-          "tariff_hp_start_1": "Début heures pleines – plage 1",
-          "tariff_hp_end_1": "Fin heures pleines – plage 1",
-          "tariff_hp_start_2": "Début heures pleines – plage 2",
-          "tariff_hp_end_2": "Fin heures pleines – plage 2"
+          "tariff_hp_price_sensor": "Capteur prix heures pleines (HP)",
+          "tariff_hc_price_sensor": "Capteur prix heures creuses (HC)",
+          "tariff_fixed_injection_price_sensor": "Capteur prix fixe de réinjection",
+          "tariff_fixed_injection_eur_kwh": "Prix fixe de réinjection de secours",
+          "tariff_hp_start_1": "Début HP 1",
+          "tariff_hp_end_1": "Fin HP 1",
+          "tariff_hp_start_2": "Début HP 2",
+          "tariff_hp_end_2": "Fin HP 2"
         }
       }
     }
@@ -158,7 +161,23 @@
         }
       },
       "pricing": {
-        "title": "Tarification"
+        "title": "Tarification",
+        "description": "Sources tarifaires dynamiques. Les séries futures optionnelles servent uniquement au comparateur économique et ne publient rien sur Energy Bus.",
+        "data": {
+          "price_current": "Prix dynamique actuel",
+          "price_next": "Prix dynamique heure suivante",
+          "price_injection": "Prix dynamique de réinjection brut",
+          "price_min_today": "Prix minimum aujourd’hui",
+          "price_max_today": "Prix maximum aujourd’hui",
+          "price_avg_today": "Prix moyen aujourd’hui",
+          "price_min_tomorrow": "Prix minimum demain",
+          "price_max_tomorrow": "Prix maximum demain",
+          "price_avg_tomorrow": "Prix moyen demain",
+          "price_tomorrow_available": "Disponibilité des prix de demain",
+          "price_forecast_import": "Série de prix futurs d’achat (optionnel)",
+          "price_forecast_export": "Série de prix futurs de réinjection (optionnel)",
+          "dynamic_export_sign_convention": "Convention du signe du prix de réinjection dynamique"
+        }
       },
       "solar": {
         "title": "EMS 2 solaire"
@@ -168,7 +187,17 @@
       },
       "hphc": {
         "title": "Tarifs HP/HC",
-        "description": "Entités de prix HP/HC prioritaires, valeurs manuelles de secours, prix de réinjection et plages horaires."
+        "description": "Tarifs ComfyFlex HP/HC, prix de reprise et plages horaires utilisés par le comparateur économique.",
+        "data": {
+          "tariff_hp_price_sensor": "Capteur prix heures pleines (HP)",
+          "tariff_hc_price_sensor": "Capteur prix heures creuses (HC)",
+          "tariff_fixed_injection_price_sensor": "Capteur prix fixe de réinjection",
+          "tariff_fixed_injection_eur_kwh": "Prix fixe de réinjection de secours",
+          "tariff_hp_start_1": "Début HP 1",
+          "tariff_hp_end_1": "Fin HP 1",
+          "tariff_hp_start_2": "Début HP 2",
+          "tariff_hp_end_2": "Fin HP 2"
+        }
       },
       "machine_add": {
         "title": "Ajouter une machine",
