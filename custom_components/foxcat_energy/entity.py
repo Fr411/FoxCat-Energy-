@@ -28,12 +28,14 @@ class FoxCatEntity(CoordinatorEntity[FoxCatEnergyCoordinator]):
             "ems": "FoxCat Energy – EMS",
             "energy_bus": "FoxCat Energy – Energy Bus",
             "machines": "FoxCat Energy – Machines",
+            "machine_learning": "FoxCat Energy – Machine Learning",
+            "ai": "FoxCat Energy – IA",
             "boiler": "FoxCat Energy – Boiler",
             "pricing": "FoxCat Energy – Tarification",
             "metronome": "FoxCat Energy – Métronome",
             "diagnostic": "FoxCat Energy – Diagnostic",
             "user_functions": "FoxCat Energy – Fonctions utilisateur",
-            "solar": "FoxCat Energy – EMS",
+            "solar": "FoxCat Energy – IA",
             "accounting": "FoxCat Energy – Énergie",
         }
         return DeviceInfo(

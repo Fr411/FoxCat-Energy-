@@ -27,6 +27,7 @@ from .const import (
     CONF_BOILER_BINARY,
     CONF_BOILER_CLIMATE,
     CONF_BOILER_POWER_SENSOR,
+    CONF_BOILER_RESISTANCE_TEMP_SENSOR,
     CONF_BOILER_TEMP_SENSOR,
     CONF_DISHWASHER_CYCLE,
     CONF_DISHWASHER_SOCKET,
@@ -89,6 +90,7 @@ from .const import (
     CONF_PRI_L2,
     CONF_PRI_L3,
     CONF_PRI_L4,
+    CONF_INVERTER_POWER_SENSOR,
     CONF_PV_SENSOR,
     CONF_WASHER_CYCLE,
     CONF_WASHER_SOCKET,
@@ -479,7 +481,13 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         machine_cycle_entities = [m.cycle_entity for m in self.machines if m.cycle_entity]
-        safety_entities = [x for x in [self.config.get(CONF_BOILER_TEMP_SENSOR), self.config.get(CONF_BOILER_BINARY), self.config.get(CONF_BOILER_POWER_SENSOR), *machine_cycle_entities] if x]
+        safety_entities = [x for x in [
+            self.config.get(CONF_BOILER_TEMP_SENSOR),
+            self.config.get(CONF_BOILER_RESISTANCE_TEMP_SENSOR),
+            self.config.get(CONF_BOILER_BINARY),
+            self.config.get(CONF_BOILER_POWER_SENSOR),
+            *machine_cycle_entities,
+        ] if x]
         if safety_entities:
             self._unsubs.append(async_track_state_change_event(self.hass, safety_entities, self._on_safety_event))
 
@@ -550,7 +558,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for hour, minute in sorted(self._machine_schedule_boundaries()):
             self._unsubs.append(async_track_time_change(self.hass, self._on_machine_schedule, hour=hour, minute=minute, second=0))
 
-        # EMS 2 schedule.
+        # IA prédictive schedule.
         for hour, minute, label in (
             (7, 0, "STRATÉGIE JOUR - TRANSITION HP 07:00"),
             (10, 30, "CONFIRMATION SOLAIRE 10:30"),
@@ -990,6 +998,21 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         boiler_binary = self._is_on(self.config.get(CONF_BOILER_BINARY))
         boiler_on = boiler_binary or boiler_power > 200
         boiler_temp = self._float_state(self.config.get(CONF_BOILER_TEMP_SENSOR))
+
+        # V1.6.154 : la sonde placée sur la résistance est la référence de
+        # sécurité thermique lorsqu'elle est configurée et valide. La sonde
+        # boiler historique reste la référence de régulation ECS et le secours
+        # de sécurité pour garantir la compatibilité des installations existantes.
+        resistance_id = self.config.get(CONF_BOILER_RESISTANCE_TEMP_SENSOR)
+        resistance_temp = self._optional_float_state(resistance_id) if resistance_id else None
+        boiler_safety_temp = resistance_temp if resistance_temp is not None else boiler_temp
+        boiler_safety_source = "RESISTANCE" if resistance_temp is not None else "REFERENCE"
+
+        # La puissance physique onduleur est lue au moment du snapshot mais ne
+        # cadence jamais EMS Core ni Onduleur Core. Le rôle de registre direct
+        # reste disponible au dashboard pour un affichage réellement live.
+        inverter_power = max(self._float_state(self.config.get(CONF_INVERTER_POWER_SENSOR)), 0.0)
+
         climate = self.hass.states.get(self.config.get(CONF_BOILER_CLIMATE)) if self.config.get(CONF_BOILER_CLIMATE) else None
         try:
             setpoint = float(climate.attributes.get("temperature", self.settings["boiler_temp_normal_c"])) if climate else float(self.settings["boiler_temp_normal_c"])
@@ -1009,11 +1032,18 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Internal historical FoxCat convention: + export / - import.
             grid_net_w=export - imp,
             boiler_temp_c=boiler_temp,
+            boiler_safety_temp_c=boiler_safety_temp,
             boiler_power_w=boiler_power,
+            inverter_power_w=inverter_power,
             boiler_on=boiler_on,
             boiler_setpoint_c=setpoint,
             machine_active=machine_active,
             valid=valid,
+            raw={
+                "boiler_resistance_temp_c": resistance_temp,
+                "boiler_safety_source": boiler_safety_source,
+                "inverter_power_w": inverter_power,
+            },
         )
 
     def _boiler_on_seconds(self) -> float:
@@ -1709,7 +1739,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         # Immediate thermal safety remains active in every mode.
-        if snapshot.boiler_on and snapshot.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
+        if snapshot.boiler_on and snapshot.boiler_safety_temp_c >= float(self.settings["boiler_temp_safety_c"]):
             await self.async_command_boiler(BOILER_STOP, "SÉCURITÉ CORE : température boiler maximale atteinte.", "SECURITE")
             return
 
@@ -1772,7 +1802,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         mode = str(self.settings.get("mode"))
         user_override = str(self.core_state.get("boiler_user_override", "AUTO"))
         if user_override == "FORCE_ON":
-            if snapshot.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
+            if snapshot.boiler_safety_temp_c >= float(self.settings["boiler_temp_safety_c"]):
                 intent = BoilerIntent(BOILER_STOP, "Utilisateur : démarrage Boiler bloqué par sécurité température.", "UTILISATEUR")
             else:
                 intent = BoilerIntent(BOILER_HEAT_45, "Utilisateur : démarrage Boiler forcé.", "UTILISATEUR")
@@ -2039,7 +2069,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         command_on = not (command.startswith("BOILER_OFF") or command == "ECS_MODULE_OFF")
         if not command_on:
             return False
-        if not bool(self.settings["boiler_enabled"]) or snap.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
+        if not bool(self.settings["boiler_enabled"]) or snap.boiler_safety_temp_c >= float(self.settings["boiler_temp_safety_c"]):
             return True
         # Un démarrage utilisateur garde la priorité sur les stratégies EMS et
         # les cycles machines. La sécurité thermique reste souveraine.
@@ -2079,7 +2109,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         snap = self.snapshot()
         # Sécurité thermique toujours souveraine, y compris régulation désactivée
         # et override utilisateur actif.
-        if snap.boiler_on and snap.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
+        if snap.boiler_on and snap.boiler_safety_temp_c >= float(self.settings["boiler_temp_safety_c"]):
             await self.async_command_boiler(BOILER_STOP, "SÉCURITÉ : température boiler maximale atteinte.", "SECURITE")
         elif bool(self.settings.get("regulation_active")):
             mode = str(self.settings.get("mode"))
@@ -2362,7 +2392,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.core_state["boiler_user_override"] = "AUTO"
                 action = "BOILER_USER_START_BLOCKED"
                 ok = False
-            elif snap.boiler_temp_c >= float(self.settings["boiler_temp_safety_c"]):
+            elif snap.boiler_safety_temp_c >= float(self.settings["boiler_temp_safety_c"]):
                 self.core_state["last_reason"] = "Utilisateur : démarrage Boiler refusé par sécurité température."
                 self.core_state["boiler_user_override"] = "AUTO"
                 action = "BOILER_USER_START_BLOCKED"
@@ -2530,8 +2560,10 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if self._pri_task and not self._pri_task.done():
                     self._pri_task.cancel()
                 await self.async_release_pri_100("Fin solaire confirmée : onduleur libéré à 100 %.")
-                await self.async_set_mode(MODE_ECS)
-                self.core_state["last_reason"] = "Fin solaire confirmée : passage automatique en ECS solaire."
+                self.core_state["last_reason"] = (
+                    "Fin solaire confirmée : onduleur libéré à 100 %, "
+                    f"mode EMS conservé ({mode})."
+                )
                 self._pv_below_since = None
         else:
             self._pv_below_since = None
@@ -2957,7 +2989,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 response = await self.hass.services.async_call(
                     "ai_task",
                     "generate_data",
-                    {"entity_id": ai_entity, "task_name": f"EMS 2 - Prévision solaire - {analysis_type}", "instructions": prompt, "structure": structure},
+                    {"entity_id": ai_entity, "task_name": f"FoxCat IA - Prévision solaire - {analysis_type}", "instructions": prompt, "structure": structure},
                     blocking=True,
                     return_response=True,
                 )
@@ -2980,7 +3012,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.async_set_updated_data(self._build_data())
                     return
             except Exception as err:  # pragma: no cover
-                _LOGGER.warning("EMS 2 AI Task failed, deterministic fallback used: %s", err)
+                _LOGGER.warning("FoxCat IA : AI Task indisponible, fallback déterministe utilisé: %s", err)
         self._deterministic_solar_fallback(analysis_type)
         await self._async_save()
         self.async_set_updated_data(self._build_data())
@@ -3027,7 +3059,7 @@ class FoxCatEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             eid = self.config.get(key)
             state = self.hass.states.get(eid) if eid else None
             return state.state if state else "indisponible"
-        return f"""Tu es EMS 2, module prédictif solaire de FoxCat Energy. Tu es uniquement consultatif : ne commande aucun équipement et ne modifies aucune consigne. EMS 1 reste seul décisionnaire.
+        return f"""Tu es le module IA prédictif solaire de FoxCat Energy. Tu es uniquement consultatif : ne commande aucun équipement et ne modifies aucune consigne. L’EMS FoxCat reste seul décisionnaire.
 
 Analyse: {analysis_type}
 Date/heure: {dt_util.now().strftime('%d/%m/%Y %H:%M')}

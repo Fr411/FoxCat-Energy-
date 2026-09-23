@@ -11,8 +11,6 @@ from .registry import render_dashboard_template, resolve_registry
 
 DASHBOARD_FOLDER = "foxcat_energy"
 DASHBOARD_FILENAME = "dashboard.yaml"
-PREMIUM_ASSET_FOLDER = "assets"
-PREMIUM_WEB_FOLDER = ("www", "foxcat_energy", "premium")
 
 
 def _source_path() -> Path:
@@ -22,50 +20,6 @@ def _source_path() -> Path:
 def _target_path(hass: HomeAssistant) -> Path:
     return Path(hass.config.path(DASHBOARD_FOLDER, DASHBOARD_FILENAME))
 
-
-
-def _premium_assets_source_path() -> Path:
-    return Path(__file__).parent / "dashboard" / PREMIUM_ASSET_FOLDER
-
-
-def _premium_assets_target_path(hass: HomeAssistant) -> Path:
-    return Path(hass.config.path(*PREMIUM_WEB_FOLDER))
-
-
-def _sync_premium_assets(source: Path, target: Path) -> int:
-    """Copy bundled Premium UI assets into /config/www.
-
-    Assets are presentation-only. Existing EMS/PRI behaviour is not touched.
-    Files are copied only when their content changed so Home Assistant can cache
-    them efficiently while still receiving updates on a FoxCat upgrade.
-    """
-    if not source.exists():
-        return 0
-
-    target.mkdir(parents=True, exist_ok=True)
-    copied = 0
-    for item in source.iterdir():
-        if not item.is_file():
-            continue
-        destination = target / item.name
-        if destination.exists():
-            try:
-                if destination.read_bytes() == item.read_bytes():
-                    continue
-            except OSError:
-                pass
-        shutil.copy2(item, destination)
-        copied += 1
-    return copied
-
-
-async def async_sync_premium_assets(hass: HomeAssistant) -> int:
-    """Synchronise the optional Premium dashboard visuals into Home Assistant."""
-    return await hass.async_add_executor_job(
-        _sync_premium_assets,
-        _premium_assets_source_path(),
-        _premium_assets_target_path(hass),
-    )
 
 def _write_dashboard_content(content: str, target: Path, make_backup: bool) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -104,7 +58,6 @@ async def async_ensure_dashboard(
     Existing user customisations are never overwritten at startup. The V1.6
     template itself is registry-based and is resolved only when written.
     """
-    await async_sync_premium_assets(hass)
     target = _target_path(hass)
     if target.exists():
         return False, str(target)
@@ -130,7 +83,6 @@ async def async_regenerate_dashboard(
     resolved from Home Assistant's entity registry by unique_id, not by their
     current object_id.
     """
-    await async_sync_premium_assets(hass)
     content, _unresolved = _render_dashboard(hass, entry, config)
     return await hass.async_add_executor_job(
         _write_dashboard_content,

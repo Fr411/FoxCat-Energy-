@@ -7,39 +7,62 @@
     },
     "step": {
       "user": {
-        "title": "FoxCat Energy – Sources énergétiques",
-        "description": "Deux mesures physiques suffisent : puissance réseau signée et production photovoltaïque. FoxCat calcule ensuite consommation maison, prélèvement et réinjection. Le capteur de secours est optionnel.",
+        "title": "FoxCat Energy – 1/7 • Sources énergétiques",
+        "description": "Sélectionnez les deux mesures physiques souveraines de FoxCat. La puissance réseau signée cadence l’EMS; la production photovoltaïque complète chaque snapshot énergétique.",
         "data": {
           "installation_name": "Nom de l'installation",
           "grid_signed_sensor": "Puissance réseau signée",
           "grid_sign_convention": "Convention du signe réseau",
           "pv_sensor": "Production photovoltaïque",
           "metronome_fallback_sensor": "Puissance réseau signée de secours (optionnel)"
+        },
+        "data_description": {
+          "installation_name": "Nom visible de votre installation FoxCat Energy.",
+          "grid_signed_sensor": "Puissance instantanée au point de raccordement. Convention recommandée : positif = prélèvement, négatif = réinjection.",
+          "grid_sign_convention": "Permet d’adapter FoxCat au signe utilisé par votre compteur ou votre intégration.",
+          "pv_sensor": "Puissance photovoltaïque instantanée utilisée pour calculer la consommation réelle de la maison.",
+          "metronome_fallback_sensor": "Source réseau signée de secours. Elle n’est utilisée qu’en cas de perte de fraîcheur de la source principale."
         }
       },
       "boiler": {
-        "title": "FoxCat Energy – Boiler",
-        "description": "Associe les entités physiques du chauffe-eau.",
+        "title": "FoxCat Energy – 2/7 • Boiler",
+        "description": "Associez le chauffe-eau et ses mesures. La température de référence sert à la régulation ECS; la température Résistance devient la sécurité thermique prioritaire lorsqu’elle est configurée.",
         "data": {
           "boiler_climate": "Thermostat du boiler",
           "boiler_temp_sensor": "Température de référence du boiler",
           "boiler_power_sensor": "Puissance du boiler",
-          "boiler_binary": "État physique du boiler"
+          "boiler_binary": "État physique du boiler",
+          "boiler_resistance_temp_sensor": "Température Résistance / sécurité"
+        },
+        "data_description": {
+          "boiler_climate": "Entité climate réellement commandée par FoxCat.",
+          "boiler_temp_sensor": "Température d’eau de référence utilisée pour la régulation normale du Boiler.",
+          "boiler_resistance_temp_sensor": "Sonde placée sur ou au plus près de la résistance. Au-delà du seuil de sécurité FoxCat (68 °C par défaut), toute chauffe est interdite et un arrêt est demandé.",
+          "boiler_power_sensor": "Puissance électrique instantanée du Boiler, utilisée pour confirmer son état physique et la comptabilité énergétique.",
+          "boiler_binary": "État physique du Boiler. Il reste la référence de cycle lorsque disponible."
         }
       },
       "pri": {
-        "title": "FoxCat Energy – Onduleur",
-        "description": "Entrées RRCR de l’onduleur dans l’ordre L1 à L4. Le PRI reste le moteur interne; le menu utilisateur s’appelle Onduleur.",
+        "title": "FoxCat Energy – 3/7 • Onduleur",
+        "description": "Configurez les quatre entrées RRCR et, si disponible, la puissance physique live de l’onduleur. Cette mesure live est informative : elle ne devient pas une seconde horloge de décision.",
         "data": {
           "pri_l1": "Relais PRI L1",
           "pri_l2": "Relais PRI L2",
           "pri_l3": "Relais PRI L3",
-          "pri_l4": "Relais PRI L4"
+          "pri_l4": "Relais PRI L4",
+          "inverter_power_sensor": "Puissance réelle onduleur en direct (optionnel)"
+        },
+        "data_description": {
+          "pri_l1": "Entrée/relais RRCR correspondant au premier bit de commande.",
+          "pri_l2": "Entrée/relais RRCR correspondant au deuxième bit de commande.",
+          "pri_l3": "Entrée/relais RRCR correspondant au troisième bit de commande.",
+          "pri_l4": "Entrée/relais RRCR correspondant au quatrième bit de commande.",
+          "inverter_power_sensor": "Capteur physique de puissance AC/DC de l’onduleur mis à jour rapidement. Le dashboard peut l’utiliser directement via le registre FoxCat."
         }
       },
       "machines": {
-        "title": "FoxCat Energy – Machines",
-        "description": "Prises, états de cycle et plages horaires personnalisables. Un cycle déjà démarré n'est jamais interrompu.",
+        "title": "FoxCat Energy – 4/7 • Machines",
+        "description": "Déclarez les appareils historiques et leurs plages. Les machines extensibles et leur apprentissage se gèrent ensuite dans Configuration → Machines.",
         "data": {
           "washer_socket": "Prise lave-linge",
           "washer_cycle": "Cycle lave-linge en cours",
@@ -62,7 +85,7 @@
         }
       },
       "pricing": {
-        "title": "FoxCat Energy – Tarification dynamique",
+        "title": "FoxCat Energy – 5/7 • Tarification dynamique",
         "description": "Sources tarifaires dynamiques. Les séries futures optionnelles servent uniquement au comparateur économique et ne publient rien sur Energy Bus.",
         "data": {
           "price_current": "Prix dynamique actuel",
@@ -81,8 +104,8 @@
         }
       },
       "solar": {
-        "title": "FoxCat Energy – EMS 2 solaire",
-        "description": "Prévisions Forecast.Solar et AI Task. EMS 2 reste strictement consultatif.",
+        "title": "FoxCat Energy – IA (compatibilité)",
+        "description": "Ancien nom de l’étape IA conservé uniquement pour compatibilité.",
         "data": {
           "ai_task": "Agent AI Task",
           "forecast_now": "Prévision maintenant",
@@ -99,7 +122,7 @@
         }
       },
       "hphc": {
-        "title": "FoxCat Energy – Tarifs HP/HC",
+        "title": "FoxCat Energy – 6/7 • Tarifs HP/HC",
         "description": "Tarifs ComfyFlex HP/HC, prix de reprise et plages horaires utilisés par le comparateur économique.",
         "data": {
           "tariff_hp_price_sensor": "Capteur prix heures pleines (HP)",
@@ -111,26 +134,58 @@
           "tariff_hp_start_2": "Début HP 2",
           "tariff_hp_end_2": "Fin HP 2"
         }
+      },
+      "ia": {
+        "title": "FoxCat Energy – 7/7 • IA",
+        "description": "Configurez le module prédictif IA. Il analyse les prévisions solaires et reste consultatif : les décisions opérationnelles restent prises par l’EMS FoxCat.",
+        "data": {
+          "ai_task": "Agent IA (AI Task)",
+          "forecast_now": "Prévision maintenant",
+          "forecast_this_hour": "Prévision cette heure",
+          "forecast_next_hour": "Prévision heure suivante",
+          "forecast_today": "Prévision aujourd'hui",
+          "forecast_remaining_today": "Prévision restante aujourd'hui",
+          "forecast_1h": "Prévision dans 1 heure",
+          "forecast_12h": "Prévision dans 12 heures",
+          "forecast_24h": "Prévision dans 24 heures",
+          "forecast_peak_today": "Heure du pic aujourd'hui",
+          "forecast_tomorrow": "Prévision demain",
+          "forecast_peak_tomorrow": "Heure du pic demain"
+        },
+        "data_description": {
+          "ai_task": "Agent IA Home Assistant utilisé pour enrichir l’analyse. Si indisponible, FoxCat conserve son fallback déterministe.",
+          "forecast_now": "Prévision de production photovoltaïque à l’instant présent.",
+          "forecast_this_hour": "Énergie solaire estimée pour l’heure en cours.",
+          "forecast_next_hour": "Énergie solaire estimée pour l’heure suivante.",
+          "forecast_today": "Production solaire estimée pour aujourd’hui.",
+          "forecast_remaining_today": "Production solaire encore attendue aujourd’hui.",
+          "forecast_1h": "Prévision solaire à une heure.",
+          "forecast_12h": "Prévision solaire à douze heures.",
+          "forecast_24h": "Prévision solaire à vingt-quatre heures.",
+          "forecast_peak_today": "Heure prévue du pic solaire aujourd’hui.",
+          "forecast_tomorrow": "Production solaire estimée demain.",
+          "forecast_peak_tomorrow": "Heure prévue du pic solaire demain."
+        }
       }
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Reconfigurer FoxCat Energy",
-        "description": "Sections FoxCat Energy dans l’ordre officiel. Les changements sont appliqués uniquement avec « Enregistrer et quitter ».",
+        "title": "Configuration FoxCat Energy",
+        "description": "Configuration organisée par fonction. Les changements restent en mémoire jusqu’à « Enregistrer et quitter ». Les sous-menus contiennent un retour explicite vers le niveau précédent.",
         "menu_options": {
-          "sources": "Sources énergétiques",
-          "energy": "Énergie",
-          "inverter": "Onduleur",
-          "ems": "EMS",
-          "energy_bus": "Energy Bus",
-          "machines": "Machines",
-          "boiler": "Boiler",
-          "pricing": "Tarification",
-          "metronome": "Métronome",
-          "diagnostic": "Diagnostic",
-          "finish": "Enregistrer et quitter"
+          "sources": "1 • Sources énergétiques",
+          "energy": "2 • Énergie",
+          "inverter": "3 • Onduleur",
+          "ems": "4 • EMS",
+          "energy_bus": "5 • Energy Bus",
+          "machines": "6 • Machines",
+          "boiler": "7 • Boiler",
+          "pricing": "8 • Tarification",
+          "metronome": "9 • Métronome",
+          "diagnostic": "10 • Diagnostic",
+          "finish": "✓ Enregistrer et quitter"
         }
       },
       "core": {
@@ -142,52 +197,95 @@
           "grid_sign_convention": "Convention du signe réseau",
           "pv_sensor": "Production photovoltaïque",
           "metronome_fallback_sensor": "Puissance réseau signée de secours (optionnel)"
+        },
+        "data_description": {
+          "installation_name": "Nom visible de votre installation FoxCat Energy.",
+          "grid_signed_sensor": "Puissance instantanée au point de raccordement. Convention recommandée : positif = prélèvement, négatif = réinjection.",
+          "grid_sign_convention": "Permet d’adapter FoxCat au signe utilisé par votre compteur ou votre intégration.",
+          "pv_sensor": "Puissance photovoltaïque instantanée utilisée pour calculer la consommation réelle de la maison.",
+          "metronome_fallback_sensor": "Source réseau signée de secours. Elle n’est utilisée qu’en cas de perte de fraîcheur de la source principale."
         }
       },
       "boiler": {
-        "title": "Boiler"
+        "title": "Boiler • Capteurs et sécurité",
+        "description": "Configuration physique du chauffe-eau. La sonde Résistance, lorsqu’elle est configurée, est prioritaire pour la sécurité thermique. Enregistrer ramène au menu principal.",
+        "data": {
+          "boiler_climate": "Thermostat du boiler",
+          "boiler_temp_sensor": "Température de référence du boiler",
+          "boiler_power_sensor": "Puissance du boiler",
+          "boiler_binary": "État physique du boiler",
+          "boiler_resistance_temp_sensor": "Température Résistance / sécurité"
+        },
+        "data_description": {
+          "boiler_climate": "Entité climate réellement commandée par FoxCat.",
+          "boiler_temp_sensor": "Température d’eau de référence utilisée pour la régulation normale du Boiler.",
+          "boiler_resistance_temp_sensor": "Sonde placée sur ou au plus près de la résistance. Au-delà du seuil de sécurité FoxCat (68 °C par défaut), toute chauffe est interdite et un arrêt est demandé.",
+          "boiler_power_sensor": "Puissance électrique instantanée du Boiler, utilisée pour confirmer son état physique et la comptabilité énergétique.",
+          "boiler_binary": "État physique du Boiler. Il reste la référence de cycle lorsque disponible."
+        }
       },
       "pri": {
-        "title": "Onduleur"
+        "title": "Onduleur • RRCR et mesure live",
+        "description": "Configurez le câblage RRCR et le capteur de puissance physique de l’onduleur. La puissance live reste une télémétrie et ne cadence pas les cœurs FoxCat.",
+        "data": {
+          "pri_l1": "Relais PRI L1",
+          "pri_l2": "Relais PRI L2",
+          "pri_l3": "Relais PRI L3",
+          "pri_l4": "Relais PRI L4",
+          "inverter_power_sensor": "Puissance réelle onduleur en direct (optionnel)"
+        },
+        "data_description": {
+          "pri_l1": "Entrée/relais RRCR correspondant au premier bit de commande.",
+          "pri_l2": "Entrée/relais RRCR correspondant au deuxième bit de commande.",
+          "pri_l3": "Entrée/relais RRCR correspondant au troisième bit de commande.",
+          "pri_l4": "Entrée/relais RRCR correspondant au quatrième bit de commande.",
+          "inverter_power_sensor": "Capteur physique de puissance AC/DC de l’onduleur mis à jour rapidement. Le dashboard peut l’utiliser directement via le registre FoxCat."
+        }
       },
       "machines": {
-        "title": "EMS Machines – appareils extensibles",
-        "description": "Ajoute, modifie ou supprime les machines ON/OFF gérées par FoxCat.",
+        "title": "Machines",
+        "description": "Gestion des appareils pilotables. L’apprentissage passif est séparé dans son propre menu Machine Learning.",
         "menu_options": {
-          "machine_add": "Ajouter une machine",
-          "machine_edit": "Modifier une machine",
-          "machine_remove": "Supprimer une machine",
-          "init": "Retour"
+          "machine_add": "＋ Ajouter une machine",
+          "machine_edit": "✎ Modifier une machine",
+          "machine_remove": "− Supprimer une machine",
+          "machine_learning": "Machine Learning",
+          "init": "← Retour au menu principal"
         }
       },
       "pricing": {
         "title": "Tarification",
-        "description": "Sources tarifaires dynamiques. Les séries futures optionnelles servent uniquement au comparateur économique et ne publient rien sur Energy Bus.",
-        "data": {
-          "price_current": "Prix dynamique actuel",
-          "price_next": "Prix dynamique heure suivante",
-          "price_injection": "Prix dynamique de réinjection brut",
-          "price_min_today": "Prix minimum aujourd’hui",
-          "price_max_today": "Prix maximum aujourd’hui",
-          "price_avg_today": "Prix moyen aujourd’hui",
-          "price_min_tomorrow": "Prix minimum demain",
-          "price_max_tomorrow": "Prix maximum demain",
-          "price_avg_tomorrow": "Prix moyen demain",
-          "price_tomorrow_available": "Disponibilité des prix de demain",
-          "price_forecast_import": "Série de prix futurs d’achat (optionnel)",
-          "price_forecast_export": "Série de prix futurs de réinjection (optionnel)",
-          "dynamic_export_sign_convention": "Convention du signe du prix de réinjection dynamique"
+        "description": "Sépare clairement tarification dynamique et HP/HC. Le comparateur économique reste distinct d’Energy Bus.",
+        "menu_options": {
+          "pricing_dynamic": "Tarification dynamique",
+          "hphc": "Tarification HP/HC",
+          "init": "← Retour au menu principal"
         }
       },
       "solar": {
-        "title": "EMS 2 solaire"
+        "title": "IA (ancien nom)",
+        "description": "Compatibilité avec l’ancien menu EMS 2 solaire.",
+        "data": {
+          "ai_task": "Agent IA (AI Task)",
+          "forecast_now": "Prévision maintenant",
+          "forecast_this_hour": "Prévision cette heure",
+          "forecast_next_hour": "Prévision heure suivante",
+          "forecast_today": "Prévision aujourd'hui",
+          "forecast_remaining_today": "Prévision restante aujourd'hui",
+          "forecast_1h": "Prévision dans 1 heure",
+          "forecast_12h": "Prévision dans 12 heures",
+          "forecast_24h": "Prévision dans 24 heures",
+          "forecast_peak_today": "Heure du pic aujourd'hui",
+          "forecast_tomorrow": "Prévision demain",
+          "forecast_peak_tomorrow": "Heure du pic demain"
+        }
       },
       "finish": {
         "title": "Enregistrer et quitter"
       },
       "hphc": {
-        "title": "Tarifs HP/HC",
-        "description": "Tarifs ComfyFlex HP/HC, prix de reprise et plages horaires utilisés par le comparateur économique.",
+        "title": "Tarification HP/HC",
+        "description": "Prix d’achat HP/HC, prix de réinjection et plages horaires. Enregistrer ramène au menu Tarification.",
         "data": {
           "tariff_hp_price_sensor": "Capteur prix heures pleines (HP)",
           "tariff_hc_price_sensor": "Capteur prix heures creuses (HC)",
@@ -261,7 +359,7 @@
       },
       "energy": {
         "title": "Énergie",
-        "description": "Grandeurs calculées par FoxCat : consommation maison, prélèvement, réinjection, autoconsommation et bilans. Aucun capteur supplémentaire n’est requis.",
+        "description": "Capteurs calculés par FoxCat : puissance maison, prélèvement, réinjection, production, autoconsommation, autonomie et bilans journaliers. Aucun capteur physique supplémentaire n’est requis.",
         "data": {}
       },
       "inverter": {
@@ -271,25 +369,98 @@
       },
       "ems": {
         "title": "EMS",
-        "description": "Modes, décisions et régulation souveraine FoxCat. Les réglages opérationnels sont exposés comme entités FoxCat.",
-        "data": {}
+        "description": "Réglages et modules liés au cœur décisionnel FoxCat. Le module prédictif est désormais présenté sous le nom « IA ».",
+        "menu_options": {
+          "ems_core": "EMS • Fonctionnement et réglages",
+          "ia": "IA • Prévisions et analyse",
+          "init": "← Retour au menu principal"
+        }
       },
       "energy_bus": {
         "title": "Energy Bus",
-        "description": "Bus interne commun aux modules FoxCat. Il transporte les trames et intentions sans prendre de décision.",
+        "description": "Bus opérationnel interne entre modules FoxCat : trames, commandes, événements et ACK/NOK. L’IA et le comparateur économique n’y publient pas de recommandations.",
         "data": {}
       },
       "metronome": {
         "title": "Métronome",
-        "description": "Le capteur réseau signé principal cadence FoxCat. Le capteur de secours doit fournir la même grandeur signée; lors d’un fallback, FoxCat bascule ensemble la cadence et la mesure réseau.",
+        "description": "Surveille la fraîcheur de la source réseau souveraine et active le secours si nécessaire. Il ne constitue pas une horloge périodique de décision.",
         "data": {
           "metronome_fallback_sensor": "Puissance réseau signée de secours (optionnel)"
         }
       },
       "diagnostic": {
         "title": "Diagnostic",
-        "description": "État du registre FoxCat, validité des données, erreurs et outils de diagnostic.",
+        "description": "État du registre, sources, trames, erreurs, watchdog et outils de maintenance. Les capteurs techniques sont classés dans l’appareil FoxCat Energy – Diagnostic.",
         "data": {}
+      },
+      "ems_core": {
+        "title": "EMS • Fonctionnement et réglages",
+        "description": "L’EMS Core reste le décideur souverain : modes, sécurité, arbitrage Boiler/machines et décisions opérationnelles. Les paramètres ajustables sont exposés sous forme d’entités FoxCat. Validez pour revenir au menu EMS.",
+        "data": {}
+      },
+      "ia": {
+        "title": "IA • Prévisions solaires",
+        "description": "Module prédictif consultatif. Il exploite Forecast.Solar et, si configuré, un agent IA Home Assistant. Il ne commande directement aucun équipement. Enregistrer ramène au menu EMS.",
+        "data": {
+          "ai_task": "Agent IA (AI Task)",
+          "forecast_now": "Prévision maintenant",
+          "forecast_this_hour": "Prévision cette heure",
+          "forecast_next_hour": "Prévision heure suivante",
+          "forecast_today": "Prévision aujourd'hui",
+          "forecast_remaining_today": "Prévision restante aujourd'hui",
+          "forecast_1h": "Prévision dans 1 heure",
+          "forecast_12h": "Prévision dans 12 heures",
+          "forecast_24h": "Prévision dans 24 heures",
+          "forecast_peak_today": "Heure du pic aujourd'hui",
+          "forecast_tomorrow": "Prévision demain",
+          "forecast_peak_tomorrow": "Heure du pic demain"
+        },
+        "data_description": {
+          "ai_task": "Agent IA Home Assistant utilisé pour enrichir l’analyse. Si indisponible, FoxCat conserve son fallback déterministe.",
+          "forecast_now": "Prévision de production photovoltaïque à l’instant présent.",
+          "forecast_this_hour": "Énergie solaire estimée pour l’heure en cours.",
+          "forecast_next_hour": "Énergie solaire estimée pour l’heure suivante.",
+          "forecast_today": "Production solaire estimée pour aujourd’hui.",
+          "forecast_remaining_today": "Production solaire encore attendue aujourd’hui.",
+          "forecast_1h": "Prévision solaire à une heure.",
+          "forecast_12h": "Prévision solaire à douze heures.",
+          "forecast_24h": "Prévision solaire à vingt-quatre heures.",
+          "forecast_peak_today": "Heure prévue du pic solaire aujourd’hui.",
+          "forecast_tomorrow": "Production solaire estimée demain.",
+          "forecast_peak_tomorrow": "Heure prévue du pic solaire demain."
+        }
+      },
+      "machine_learning": {
+        "title": "Machine Learning",
+        "description": "Espace dédié à l’apprentissage passif des cycles machines. Les modèles apprennent durée, énergie et signatures de puissance sans modifier les décisions de l’EMS.",
+        "menu_options": {
+          "machine_learning_info": "Présentation et état du modèle",
+          "machines": "← Retour aux Machines"
+        }
+      },
+      "machine_learning_info": {
+        "title": "Machine Learning • Présentation",
+        "description": "FoxCat enregistre localement jusqu’à 30 cycles récents par machine mesurée. Les données observées comprennent puissance, courant, tension, durée, énergie, tarif et contexte solaire/réseau. Cette collecte reste strictement passive et n’influence pas l’EMS.",
+        "data": {}
+      },
+      "pricing_dynamic": {
+        "title": "Tarification dynamique",
+        "description": "Prix actuels, prochains et séries futures utilisés par le comparateur économique. Enregistrer ramène au menu Tarification.",
+        "data": {
+          "price_current": "Prix dynamique actuel",
+          "price_next": "Prix dynamique heure suivante",
+          "price_injection": "Prix dynamique de réinjection brut",
+          "price_min_today": "Prix minimum aujourd’hui",
+          "price_max_today": "Prix maximum aujourd’hui",
+          "price_avg_today": "Prix moyen aujourd’hui",
+          "price_min_tomorrow": "Prix minimum demain",
+          "price_max_tomorrow": "Prix maximum demain",
+          "price_avg_tomorrow": "Prix moyen demain",
+          "price_tomorrow_available": "Disponibilité des prix de demain",
+          "price_forecast_import": "Série de prix futurs d’achat (optionnel)",
+          "price_forecast_export": "Série de prix futurs de réinjection (optionnel)",
+          "dynamic_export_sign_convention": "Convention du signe du prix de réinjection dynamique"
+        }
       }
     }
   }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 DOMAIN = "foxcat_energy"
-VERSION = "1.6.153"
+VERSION = "1.6.155"
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
 
 # Ordre fonctionnel officiel FoxCat Energy. Cet ordre est partagé par les
@@ -47,7 +47,9 @@ CONF_METRONOME_SENSOR = "metronome_sensor"
 CONF_METRONOME_FALLBACK_SENSOR = "metronome_fallback_sensor"
 CONF_BOILER_CLIMATE = "boiler_climate"
 CONF_BOILER_TEMP_SENSOR = "boiler_temp_sensor"
+CONF_BOILER_RESISTANCE_TEMP_SENSOR = "boiler_resistance_temp_sensor"
 CONF_BOILER_POWER_SENSOR = "boiler_power_sensor"
+CONF_INVERTER_POWER_SENSOR = "inverter_power_sensor"
 CONF_BOILER_BINARY = "boiler_binary"
 CONF_PRI_L1 = "pri_l1"
 CONF_PRI_L2 = "pri_l2"
@@ -333,7 +335,7 @@ SWITCH_DEFINITIONS = {
     "washer_enabled": ("Gestion lave-linge", "mdi:washing-machine"),
     "dryer_enabled": ("Gestion sèche-linge", "mdi:tumble-dryer"),
     "dishwasher_enabled": ("Gestion lave-vaisselle", "mdi:dishwasher"),
-    "solar_advisor_enabled": ("Conseiller solaire EMS 2", "mdi:weather-sunny-alert"),
+    "solar_advisor_enabled": ("Analyse prédictive IA", "mdi:brain"),
     "dynamic_negative_price_charge_enabled": ("Charge réseau si prix dynamique négatif", "mdi:transmission-tower-import"),
     "economic_optimizer_enabled": ("Optimisation économique des charges flexibles", "mdi:finance"),
     "high_load_shed_enabled": ("Délestage haute consommation", "mdi:home-lightning-bolt-outline"),

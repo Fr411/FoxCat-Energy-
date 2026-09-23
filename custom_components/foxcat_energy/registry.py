@@ -13,6 +13,7 @@ from .const import (
     CONF_BOILER_BINARY,
     CONF_BOILER_CLIMATE,
     CONF_BOILER_POWER_SENSOR,
+    CONF_BOILER_RESISTANCE_TEMP_SENSOR,
     CONF_BOILER_TEMP_SENSOR,
     CONF_DISHWASHER_CYCLE,
     CONF_DISHWASHER_SOCKET,
@@ -46,6 +47,7 @@ from .const import (
     CONF_PRI_L2,
     CONF_PRI_L3,
     CONF_PRI_L4,
+    CONF_INVERTER_POWER_SENSOR,
     CONF_PV_SENSOR,
     CONF_TARIFF_FIXED_INJECTION_PRICE_SENSOR,
     CONF_TARIFF_HC_PRICE_SENSOR,
@@ -125,6 +127,8 @@ _native("inverter.pv_limit", "Onduleur", "ems_onduleur_plafond_pv")
 _native("inverter.limit_usage", "Onduleur", "ems_onduleur_utilisation_plafond")
 _native("inverter.solar_potential", "Onduleur", "ems_onduleur_potentiel")
 _native("inverter.release", "Onduleur", "liberer_onduleur")
+_config("inverter.power_live", "Onduleur", CONF_INVERTER_POWER_SENSOR)
+_native("inverter.power_snapshot", "Onduleur", "puissance_onduleur_snapshot")
 _config("inverter.rrcr_l1", "Onduleur", CONF_PRI_L1, "switch.l1_pri")
 _config("inverter.rrcr_l2", "Onduleur", CONF_PRI_L2, "switch.l2_pri")
 _config("inverter.rrcr_l3", "Onduleur", CONF_PRI_L3, "switch.l3_pri")
@@ -174,9 +178,13 @@ _native("inverter.actuator_target", "Onduleur", "onduleur_actionneur_cible")
 # Boiler
 _config("boiler.climate", "Boiler", CONF_BOILER_CLIMATE, "climate.buanderie_boiler_chauffe_eau")
 _config("boiler.temperature_source", "Boiler", CONF_BOILER_TEMP_SENSOR, "sensor.garage_boiler_sonde_temperature_temperature")
+_config("boiler.resistance_temperature_source", "Boiler", CONF_BOILER_RESISTANCE_TEMP_SENSOR)
 _config("boiler.power_source", "Boiler", CONF_BOILER_POWER_SENSOR, "sensor.boiler_puissance")
 _config("boiler.binary_source", "Boiler", CONF_BOILER_BINARY, "binary_sensor.boiler")
 _native("boiler.temperature", "Boiler", "temperature_boiler")
+_native("boiler.resistance_temperature", "Boiler", "temperature_resistance_boiler")
+_native("boiler.safety", "Boiler", "securite_thermique_boiler")
+_native("boiler.safety_source", "Boiler", "source_securite_thermique_boiler")
 _native("boiler.power", "Boiler", "puissance_boiler")
 _native("boiler.physical", "Boiler", "boiler_physique")
 _native("boiler.demand", "Boiler", "demande_boiler")
@@ -260,8 +268,8 @@ _native("diagnostic.dashboard_regenerate", "Diagnostic", "regenerer_dashboard")
 _native("diagnostic.legacy_conflict", "Diagnostic", "conflit_legacy")
 _native("diagnostic.high_load", "Diagnostic", "haute_consommation_active")
 
-# Prévisions solaires / EMS 2 restent accessibles au registre, même si elles ne
-# constituent pas un menu principal autonome en V1.6.0.
+# Prévisions solaires / IA restent accessibles au registre. Les rôles
+# ems.forecast.* sont conservés pour compatibilité avec les dashboards existants.
 _config("ems.forecast.ai_task", "EMS", CONF_AI_TASK)
 _config("ems.forecast.now", "EMS", CONF_FORECAST_NOW)
 _config("ems.forecast.this_hour", "EMS", CONF_FORECAST_THIS_HOUR)
@@ -467,6 +475,18 @@ def resolve_registry(
                 resolved[f"machines.{machine.machine_id}.user_start"] = native[start_key]
             if native.get(stop_key):
                 resolved[f"machines.{machine.machine_id}.user_stop"] = native[stop_key]
+
+            # V1.6.154 : rôles dédiés Machine Learning, distincts des capteurs
+            # opérationnels Machines. Aucun de ces rôles ne pilote l'EMS.
+            ml_roles = {
+                "cycles": f"apprentissage_{safe_key}_cycles",
+                "collecting": f"apprentissage_{safe_key}_collecte",
+                "average_energy": f"apprentissage_{safe_key}_energie_moyenne",
+                "average_duration": f"apprentissage_{safe_key}_duree_moyenne",
+            }
+            for suffix, native_key in ml_roles.items():
+                if native.get(native_key):
+                    resolved[f"machine_learning.{machine.machine_id}.{suffix}"] = native[native_key]
     except Exception:
         pass
 
