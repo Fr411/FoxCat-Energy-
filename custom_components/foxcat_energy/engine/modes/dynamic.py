@@ -30,7 +30,7 @@ def evaluate_dynamic(
         )
     if not bool(settings["boiler_enabled"]):
         return BoilerIntent(BOILER_STOP, "Boiler désactivé dans FoxCat.", "SECURITE")
-    if snapshot.boiler_temp_c >= float(settings["boiler_temp_safety_c"]):
+    if snapshot.boiler_safety_temp_c >= float(settings["boiler_temp_safety_c"]):
         return BoilerIntent(BOILER_STOP, "Sécurité thermique boiler.", "SECURITE")
 
     current = prices.get("current")
@@ -103,5 +103,5 @@ def evaluate_dynamic(
     if snapshot.boiler_temp_c < normal and very_high:
         return BoilerIntent(BOILER_STOP, "Prix élevé évité.", "PRIX")
     if snapshot.boiler_temp_c < normal and solar_future and not deadline and not very_low:
-        return BoilerIntent(BOILER_STOP, "Attente solaire autorisée par EMS 2.", "EMS2")
+        return BoilerIntent(BOILER_STOP, "Attente solaire recommandée par IA.", "IA")
     return BoilerIntent(BOILER_NONE, "Surveillance dynamique : aucune action nécessaire.", "PRIX")

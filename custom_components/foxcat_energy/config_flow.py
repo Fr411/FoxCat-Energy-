@@ -15,6 +15,7 @@ from .const import (
     CONF_BOILER_BINARY,
     CONF_BOILER_CLIMATE,
     CONF_BOILER_POWER_SENSOR,
+    CONF_BOILER_RESISTANCE_TEMP_SENSOR,
     CONF_BOILER_TEMP_SENSOR,
     CONF_DISHWASHER_CYCLE,
     CONF_DISHWASHER_OFF_1,
@@ -70,6 +71,7 @@ from .const import (
     CONF_PRI_L2,
     CONF_PRI_L3,
     CONF_PRI_L4,
+    CONF_INVERTER_POWER_SENSOR,
     CONF_PV_SENSOR,
     CONF_TARIFF_HP_END_1,
     CONF_TARIFF_HP_END_2,
@@ -160,6 +162,7 @@ def _boiler_schema() -> vol.Schema:
         {
             _required(CONF_BOILER_CLIMATE, "climate.buanderie_boiler_chauffe_eau"): _entity("climate"),
             _required(CONF_BOILER_TEMP_SENSOR, "sensor.garage_boiler_sonde_temperature_temperature"): _entity("sensor"),
+            _optional(CONF_BOILER_RESISTANCE_TEMP_SENSOR): _entity("sensor"),
             _required(CONF_BOILER_POWER_SENSOR, "sensor.boiler_puissance"): _entity("sensor"),
             _required(CONF_BOILER_BINARY, "binary_sensor.boiler"): _entity("binary_sensor"),
         }
@@ -173,6 +176,7 @@ def _pri_schema() -> vol.Schema:
             _required(CONF_PRI_L2, "switch.l2_pri"): _entity("switch"),
             _required(CONF_PRI_L3, "switch.l3_pri"): _entity("switch"),
             _required(CONF_PRI_L4, "switch.l4_pri"): _entity("switch"),
+            _optional(CONF_INVERTER_POWER_SENSOR): _entity("sensor"),
         }
     )
 
@@ -329,6 +333,8 @@ _SCHEMA_BUILDERS = {
     "pricing": _pricing_schema,
     "hphc": _hphc_schema,
     "solar": _solar_schema,
+    "ia": _solar_schema,
+    "pricing_dynamic": _pricing_schema,
 }
 
 
@@ -391,17 +397,21 @@ class FoxCatEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_hphc(self, user_input=None):
         if user_input is not None:
             self._data.update(_normalise_input(user_input))
-            return await self.async_step_solar()
+            return await self.async_step_ia()
         return self.async_show_form(step_id="hphc", data_schema=_hphc_schema())
 
-    async def async_step_solar(self, user_input=None):
+    async def async_step_ia(self, user_input=None):
         if user_input is not None:
             self._data.update(_normalise_input(user_input))
             title = str(self._data.get(CONF_INSTALLATION_NAME, "FoxCat Energy"))
             await self.async_set_unique_id("foxcat_energy_main")
             self._abort_if_unique_id_configured()
             return self.async_create_entry(title=title, data=self._data)
-        return self.async_show_form(step_id="solar", data_schema=_solar_schema())
+        return self.async_show_form(step_id="ia", data_schema=_solar_schema())
+
+    async def async_step_solar(self, user_input=None):
+        """Compatibilité avec l'ancien nom de l'étape EMS 2 solaire."""
+        return await self.async_step_ia(user_input)
 
     @staticmethod
     @callback
@@ -460,7 +470,7 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
             menu_options=list(OFFICIAL_MENU_STEPS),
         )
 
-    async def _section(self, step_id: str, user_input):
+    async def _section(self, step_id: str, user_input, return_step: str = "init"):
         if user_input is not None:
             normalised = _normalise_input(user_input)
             pending = self._ensure_pending()
@@ -468,7 +478,7 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
             if step_id in {"core", "metronome"} and CONF_METRONOME_FALLBACK_SENSOR not in normalised:
                 # Empty option explicitly shadows a pre-1.6 fallback stored in entry.data.
                 pending[CONF_METRONOME_FALLBACK_SENSOR] = ""
-            return await self.async_step_init()
+            return await getattr(self, f"async_step_{return_step}")()
         schema = _SCHEMA_BUILDERS[step_id]()
         return self.async_show_form(
             step_id=step_id,
@@ -478,9 +488,9 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
     async def async_step_sources(self, user_input=None):
         return await self._section("core", user_input)
 
-    async def _info_section(self, step_id: str, user_input=None):
+    async def _info_section(self, step_id: str, user_input=None, return_step: str = "init"):
         if user_input is not None:
-            return await self.async_step_init()
+            return await getattr(self, f"async_step_{return_step}")()
         return self.async_show_form(step_id=step_id, data_schema=vol.Schema({}))
 
     async def async_step_energy(self, user_input=None):
@@ -490,7 +500,16 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
         return await self._section("pri", user_input)
 
     async def async_step_ems(self, user_input=None):
-        return await self._info_section("ems", user_input)
+        return self.async_show_menu(
+            step_id="ems",
+            menu_options=["ems_core", "ia", "init"],
+        )
+
+    async def async_step_ems_core(self, user_input=None):
+        return await self._info_section("ems_core", user_input, return_step="ems")
+
+    async def async_step_ia(self, user_input=None):
+        return await self._section("ia", user_input, return_step="ems")
 
     async def async_step_energy_bus(self, user_input=None):
         return await self._info_section("energy_bus", user_input)
@@ -521,7 +540,7 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
     async def async_step_machines(self, user_input=None):
         return self.async_show_menu(
             step_id="machines",
-            menu_options=["machine_add", "machine_edit", "machine_remove", "init"],
+            menu_options=["machine_add", "machine_edit", "machine_remove", "machine_learning", "init"],
         )
 
     async def async_step_machine_add(self, user_input=None):
@@ -567,14 +586,30 @@ class FoxCatEnergyOptionsFlow(config_entries.OptionsFlow):
         self._store_machine_records([item for item in records if str(item.get("id")) != machine_id])
         return await self.async_step_machines()
 
+    async def async_step_machine_learning(self, user_input=None):
+        return self.async_show_menu(
+            step_id="machine_learning",
+            menu_options=["machine_learning_info", "machines"],
+        )
+
+    async def async_step_machine_learning_info(self, user_input=None):
+        return await self._info_section("machine_learning_info", user_input, return_step="machine_learning")
+
     async def async_step_pricing(self, user_input=None):
-        return await self._section("pricing", user_input)
+        return self.async_show_menu(
+            step_id="pricing",
+            menu_options=["pricing_dynamic", "hphc", "init"],
+        )
+
+    async def async_step_pricing_dynamic(self, user_input=None):
+        return await self._section("pricing_dynamic", user_input, return_step="pricing")
 
     async def async_step_hphc(self, user_input=None):
-        return await self._section("hphc", user_input)
+        return await self._section("hphc", user_input, return_step="pricing")
 
     async def async_step_solar(self, user_input=None):
-        return await self._section("solar", user_input)
+        """Compatibilité options avec l'ancien nom EMS 2 solaire."""
+        return await self.async_step_ia(user_input)
 
     async def async_step_finish(self, user_input=None):
         return self.async_create_entry(title="", data=self._ensure_pending())

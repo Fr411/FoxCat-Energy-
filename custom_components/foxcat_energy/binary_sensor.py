@@ -19,7 +19,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             FoxCatBinary(c, "haute_consommation_active", "Délestage haute consommation actif", "mdi:flash-alert", "ems", lambda d: d["load_shed"].get("active"), BinarySensorDeviceClass.PROBLEM),
             FoxCatBinary(c, "boiler_autorise_cycle_protege", "Chauffe-eau autorisé pendant cycle protégé", "mdi:shield-check-outline", "machines", lambda d: d["machine_guard"].get("boiler_allowed")),
             FoxCatBinary(c, "boiler_physique", "Boiler physique", "mdi:water-boiler", "boiler", lambda d: d["snapshot"].boiler_on, BinarySensorDeviceClass.POWER),
-            FoxCatBinary(c, "fenetre_solaire", "Fenêtre solaire exploitable", "mdi:weather-sunny", "solar", lambda d: d["solar"].available),
+            FoxCatBinary(c, "securite_thermique_boiler", "Sécurité thermique résistance", "mdi:thermometer-alert", "boiler", lambda d: d["snapshot"].boiler_safety_temp_c >= float(c.settings.get("boiler_temp_safety_c", 68.0)), BinarySensorDeviceClass.PROBLEM),
+            FoxCatBinary(c, "fenetre_solaire", "Fenêtre solaire exploitable", "mdi:weather-sunny", "ai", lambda d: d["solar"].available),
             FoxCatBinary(c, "conflit_legacy", "Automatisation FoxCat legacy active", "mdi:alert-decagram-outline", "diagnostic", lambda d: d["legacy_conflict"], BinarySensorDeviceClass.PROBLEM),
             FoxCatBinary(c, "fenetre_machines", "Fenêtre alimentation machines", "mdi:clock-check-outline", "machines", lambda d: any(d["machine_window"].values())),
         ]

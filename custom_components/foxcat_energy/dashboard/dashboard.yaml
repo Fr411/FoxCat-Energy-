@@ -6,565 +6,1611 @@ views:
     max_columns: 4
     title: Accueil
     path: Emsdash
-    icon: mdi:home-lightning-bolt
+    icon: mdi:home
     show_icon_and_title: false
     sections:
       - type: grid
         cards:
-          # ================================================================
-          # FOXCAT PREMIUM — NAVIGATION
-          # ================================================================
-          - type: grid
-            columns: 8
-            square: false
-            grid_options:
-              columns: 12
-            cards:
-              - type: custom:button-card
-                name: Accueil
-                icon: mdi:home-variant
-                tap_action:
-                  action: navigate
-                  navigation_path: |-
-                    [[[
-                      const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                      return `${base}/Emsdash`;
-                    ]]]
-                styles:
-                  card:
-                    - height: 58px
-                    - border-radius: 18px
-                    - background: linear-gradient(145deg, rgba(24,111,159,.34), rgba(7,30,45,.92))
-                    - border: 1px solid rgba(78,195,255,.28)
-                    - box-shadow: inset 0 1px 0 rgba(255,255,255,.04)
-                  icon:
-                    - color: '#36c9ff'
-                    - width: 22px
-                  name:
-                    - color: '#edf9ff'
-                    - font-size: 11px
-                    - font-weight: 700
-              - type: custom:button-card
-                name: Énergie
-                icon: mdi:lightning-bolt
-                tap_action:
-                  action: navigate
-                  navigation_path: |-
-                    [[[
-                      const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                      return `${base}/energie`;
-                    ]]]
-                styles: &foxcat_nav_style
-                  card:
-                    - height: 58px
-                    - border-radius: 18px
-                    - background: rgba(7,22,34,.88)
-                    - border: 1px solid rgba(105,170,210,.15)
-                  icon:
-                    - color: '#7fb4d0'
-                    - width: 21px
-                  name:
-                    - color: '#c7dbe5'
-                    - font-size: 11px
-                    - font-weight: 650
-              - type: custom:button-card
-                name: Onduleur
-                icon: mdi:solar-power-variant
-                tap_action:
-                  action: navigate
-                  navigation_path: |-
-                    [[[
-                      const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                      return `${base}/pri`;
-                    ]]]
-                styles: *foxcat_nav_style
-              - type: custom:button-card
-                name: Boiler
-                icon: mdi:water-boiler
-                tap_action:
-                  action: navigate
-                  navigation_path: |-
-                    [[[
-                      const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                      return `${base}/boiler`;
-                    ]]]
-                styles: *foxcat_nav_style
-              - type: custom:button-card
-                name: Machines
-                icon: mdi:washing-machine
-                tap_action:
-                  action: navigate
-                  navigation_path: |-
-                    [[[
-                      const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                      return `${base}/appareils`;
-                    ]]]
-                styles: *foxcat_nav_style
-              - type: custom:button-card
-                name: Économie
-                icon: mdi:finance
-                tap_action:
-                  action: navigate
-                  navigation_path: |-
-                    [[[
-                      const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                      return `${base}/couts`;
-                    ]]]
-                styles: *foxcat_nav_style
-              - type: custom:button-card
-                name: Diagnostic
-                icon: mdi:stethoscope
-                tap_action:
-                  action: navigate
-                  navigation_path: |-
-                    [[[
-                      const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                      return `${base}/technique`;
-                    ]]]
-                styles: *foxcat_nav_style
-              - type: custom:button-card
-                name: Réglages
-                icon: mdi:cog-outline
-                tap_action:
-                  action: navigate
-                  navigation_path: |-
-                    [[[
-                      const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                      return `${base}/conf`;
-                    ]]]
-                styles: *foxcat_nav_style
-
-          # ================================================================
-          # HERO — IMAGE + IDENTITÉ + ÉTATS CLÉS
-          # ================================================================
           - type: custom:button-card
-            entity: '[[foxcat:energy.valid]]'
             show_name: false
             show_icon: false
             show_state: false
-            grid_options:
-              columns: 12
-            tap_action:
-              action: none
             custom_fields:
-              hero: |
+              header: |
                 [[[
-                  const st = (id, fallback='—') => states[id]?.state ?? fallback;
-                  const num = (id) => {
-                    const v = Number(states[id]?.state);
-                    return Number.isFinite(v) ? v : null;
-                  };
-                  const fmtPrice = (v) => v === null ? '—' : `${v.toFixed(3)} €/kWh`;
-                  const ok = st('[[foxcat:energy.valid]]') === 'on';
-                  const mode = st('[[foxcat:ems.mode]]');
-                  const tariff = st('[[foxcat:pricing.active_label]]');
-                  const price = num('[[foxcat:pricing.active_buy]]');
-                  const next = st('[[foxcat:pricing.next_label]]');
-                  const now = new Date();
-                  const date = now.toLocaleDateString('fr-BE', {weekday:'short', day:'2-digit', month:'short', year:'numeric'});
-                  const time = now.toLocaleTimeString('fr-BE', {hour:'2-digit', minute:'2-digit'});
                   return `
-                    <div class="fx-hero-wrap">
-                      <div class="fx-hero-main">
-                        <div class="fx-brand-row">
-                          <div class="fx-brand-mark">⚡</div>
-                          <div>
-                            <div class="fx-brand-title"><span>FOXCAT</span> ENERGY</div>
-                            <div class="fx-brand-sub">HOME ASSISTANT • EMS INTELLIGENT</div>
-                          </div>
-                        </div>
-                        <div class="fx-hero-copy">Une énergie plus intelligente<br>pour une maison plus durable.</div>
-                        <div class="fx-hero-mini">Optimiser aujourd’hui. Préserver demain.</div>
+                    <div class="hfc-header">
+
+                      <div class="hfc-logo">
+                        <div class="fox-glow"></div>
+                        <ha-icon icon="mdi:cat"></ha-icon>
                       </div>
-                      <div class="fx-hero-status">
-                        <div class="fx-status-block">
-                          <div class="fx-status-dot ${ok ? 'ok' : 'bad'}"></div>
-                          <div><span>Système</span><b>${ok ? 'OK' : 'À contrôler'}</b></div>
+
+                      <div class="hfc-name">
+
+                        <div class="hfc-title">
+                          <span class="home"></span><span class="fox">FOX</span><span class="cat">CAT</span>
+                          <span class="energy">ENERGY</span>
                         </div>
-                        <div class="fx-status-block"><div class="fx-icon green">🌿</div><div><span>Mode EMS</span><b>${mode}</b></div></div>
-                        <div class="fx-status-block"><div class="fx-icon amber">€</div><div><span>${tariff}</span><b>${fmtPrice(price)}</b></div></div>
-                        <div class="fx-status-block"><div class="fx-icon blue">◷</div><div><span>Prochain tarif</span><b>${next}</b></div></div>
+
+                        <div class="hfc-subtitle">
+                          ENERGY MANAGEMENT SYSTEM
+                        </div>
+
                       </div>
-                      <div class="fx-time"><b>${time}</b><span>${date}</span></div>
+
+                      <div class="hfc-line">
+                        <span class="line-orange"></span>
+                        <span class="line-blue"></span>
+                      </div>
+
                     </div>
                   `;
                 ]]]
             styles:
               card:
-                - min-height: 255px
-                - padding: 0
-                - border-radius: 28px
+                - padding: 17px 22px
+                - border-radius: 20px
                 - overflow: hidden
-                - border: 1px solid rgba(74,184,238,.20)
-                - box-shadow: 0 22px 55px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.04)
-                - background: linear-gradient(90deg, rgba(3,16,27,.98) 0%, rgba(4,22,34,.92) 34%, rgba(3,17,28,.62) 62%, rgba(3,16,27,.94) 100%), url('/local/foxcat_energy/premium/hero_house.webp') center/cover no-repeat
+                - background: |
+                    radial-gradient(
+                      circle at 3% 50%,
+                      rgba(255,120,20,0.15),
+                      transparent 24%
+                    ), radial-gradient(
+                      circle at 95% 30%,
+                      rgba(0,210,255,0.11),
+                      transparent 28%
+                    ), linear-gradient(
+                      135deg,
+                      #080d16 0%,
+                      #0a1420 48%,
+                      #071827 100%
+                    )
+                - border: 1px solid rgba(255,255,255,0.08)
+                - box-shadow: >
+                    0 10px 30px rgba(0,0,0,0.30), inset 0 1px 0
+                    rgba(255,255,255,0.035)
               grid:
-                - grid-template-areas: '"hero"'
+                - grid-template-areas: '"header"'
                 - grid-template-columns: 1fr
+                - grid-template-rows: auto
               custom_fields:
-                hero:
+                header:
                   - width: 100%
             extra_styles: |
-              .fx-hero-wrap{position:relative;min-height:255px;padding:28px 30px;box-sizing:border-box;display:grid;grid-template-columns:minmax(330px,1fr) minmax(420px,1.2fr);gap:24px;align-items:center;color:#eaf7ff;font-family:var(--paper-font-body1_-_font-family,Inter,sans-serif)}
-              .fx-brand-row{display:flex;align-items:center;gap:16px}.fx-brand-mark{width:56px;height:56px;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:30px;background:linear-gradient(145deg,rgba(0,204,255,.22),rgba(0,88,138,.12));border:1px solid rgba(59,210,255,.32);box-shadow:0 0 35px rgba(0,201,255,.12)}
-              .fx-brand-title{font-size:33px;font-weight:850;letter-spacing:.03em;line-height:1}.fx-brand-title span{color:#2dd5ff}.fx-brand-sub{margin-top:8px;color:#7d9aaa;font-size:10px;letter-spacing:.18em}.fx-hero-copy{margin-top:24px;font-size:22px;line-height:1.25;font-weight:600;color:#f4fbff}.fx-hero-mini{margin-top:12px;color:#77a4b9;font-size:12px}
-              .fx-hero-status{justify-self:end;display:grid;grid-template-columns:repeat(2,minmax(170px,1fr));width:min(100%,620px);gap:10px;padding:12px;border-radius:22px;background:rgba(3,15,25,.62);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.05)}
-              .fx-status-block{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.04)}.fx-status-block span{display:block;color:#708d9d;font-size:9px;text-transform:uppercase;letter-spacing:.08em}.fx-status-block b{display:block;margin-top:3px;color:#e8f7ff;font-size:12px;font-weight:700}.fx-status-dot{width:10px;height:10px;border-radius:50%;box-shadow:0 0 14px currentColor}.fx-status-dot.ok{background:#35e6a8;color:#35e6a8}.fx-status-dot.bad{background:#ff6073;color:#ff6073}.fx-icon{width:28px;height:28px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900}.fx-icon.green{color:#50e5aa;background:rgba(50,229,170,.09)}.fx-icon.amber{color:#ffc64e;background:rgba(255,198,78,.09)}.fx-icon.blue{color:#43cfff;background:rgba(67,207,255,.09)}
-              .fx-time{position:absolute;right:28px;top:18px;display:flex;flex-direction:column;align-items:flex-end}.fx-time b{font-size:18px}.fx-time span{color:#6f8c9d;font-size:9px;margin-top:3px}
-              @media (max-width:900px){.fx-hero-wrap{grid-template-columns:1fr;padding:24px}.fx-hero-status{justify-self:stretch;grid-template-columns:repeat(2,1fr)}.fx-time{display:none}.fx-brand-title{font-size:27px}.fx-hero-copy{font-size:18px}}
 
-          # ================================================================
-          # FLUX ÉNERGÉTIQUE LIVE
-          # ================================================================
-          - type: custom:button-card
-            entity: '[[foxcat:energy.grid_power]]'
-            show_name: false
-            show_icon: false
-            show_state: false
-            grid_options:
-              columns: 4
-            tap_action:
-              action: navigate
-              navigation_path: |-
-                [[[
-                  const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                  return `${base}/energie`;
-                ]]]
-            custom_fields:
-              body: |
-                [[[
-                  const n = (id) => { const v=Number(states[id]?.state); return Number.isFinite(v)?v:0; };
-                  const fmt=(v)=>Math.abs(v)>=1000?`${(v/1000).toFixed(2)} kW`:`${Math.round(v)} W`;
-                  const pv=n('[[foxcat:energy.pv_power]]');
-                  const house=n('[[foxcat:energy.house_power]]');
-                  const imp=n('[[foxcat:energy.grid_import]]');
-                  const exp=n('[[foxcat:energy.grid_export]]');
-                  const grid=Math.max(imp,exp);
-                  const gridColor=imp>20?'#ff6174':exp>20?'#45e6a7':'#7e98a6';
-                  const gridLabel=imp>20?'IMPORT':exp>20?'EXPORT':'ÉQUILIBRE';
-                  const flow=imp>20?'RÉSEAU → MAISON':exp>20?'MAISON → RÉSEAU':'AUCUN ÉCHANGE NET';
-                  return `
-                    <div class="fx-card-head"><div><b>Flux énergétique</b><span>Temps réel</span></div><div class="fx-live">● LIVE</div></div>
-                    <div class="fx-flow">
-                      <div class="node solar"><i>☀</i><small>SOLAIRE</small><strong>${fmt(pv)}</strong></div>
-                      <div class="line solarline"><span></span></div>
-                      <div class="node home"><i>⌂</i><small>MAISON</small><strong>${fmt(house)}</strong></div>
-                      <div class="line gridline" style="--flow:${gridColor}"><span></span></div>
-                      <div class="node grid"><i>ϟ</i><small>RÉSEAU</small><strong style="color:${gridColor}">${fmt(grid)}</strong></div>
-                    </div>
-                    <div class="fx-flow-footer"><span>${gridLabel}</span><b style="color:${gridColor}">${flow}</b></div>
-                  `;
-                ]]]
-            styles: &foxcat_main_card_style
-              card:
-                - min-height: 335px
-                - padding: 23px
-                - border-radius: 24px
-                - background: linear-gradient(150deg,rgba(8,27,42,.98),rgba(5,19,30,.98))
-                - border: 1px solid rgba(77,161,207,.18)
-                - box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 13px 35px rgba(0,0,0,.16)
-              grid:
-                - grid-template-areas: '"body"'
-                - grid-template-columns: 1fr
-            extra_styles: |
-              .fx-card-head{display:flex;justify-content:space-between;align-items:flex-start}.fx-card-head b{display:block;color:#f0f9ff;font-size:18px}.fx-card-head span{display:block;margin-top:4px;color:#6f8b9b;font-size:10px}.fx-live{font-size:9px;color:#37dda3;padding:7px 10px;border-radius:12px;border:1px solid rgba(55,221,163,.16);background:rgba(55,221,163,.06)}
-              .fx-flow{display:grid;grid-template-columns:1fr 52px 1fr 52px 1fr;align-items:center;margin-top:42px;gap:4px}.node{text-align:center}.node i{display:flex;width:52px;height:52px;margin:0 auto 10px;border-radius:18px;align-items:center;justify-content:center;font-size:29px;font-style:normal;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06)}.node small{display:block;color:#6e8998;font-size:9px;letter-spacing:.08em}.node strong{display:block;margin-top:5px;font-size:21px;color:#edf9ff}.node.solar i,.node.solar strong{color:#ffc347}.node.home i,.node.home strong{color:#38cfff}.line{height:3px;border-radius:10px;position:relative;overflow:hidden;background:rgba(255,255,255,.06)}.line span{position:absolute;inset:0;width:35%;border-radius:10px;animation:fxmove 1.7s linear infinite}.solarline span{background:#ffc347;box-shadow:0 0 12px #ffc347}.gridline span{background:var(--flow);box-shadow:0 0 12px var(--flow)}.fx-flow-footer{margin-top:42px;padding:14px 15px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.045);display:flex;justify-content:space-between;align-items:center}.fx-flow-footer span{font-size:9px;color:#6d8795}.fx-flow-footer b{font-size:11px}@keyframes fxmove{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}
+              .hfc-header {
+                position: relative;
 
-          # ================================================================
-          # BILAN DU JOUR
-          # ================================================================
-          - type: custom:button-card
-            show_name: false
-            show_icon: false
-            show_state: false
-            grid_options:
-              columns: 4
-            tap_action:
-              action: navigate
-              navigation_path: |-
-                [[[
-                  const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                  return `${base}/energie`;
-                ]]]
-            custom_fields:
-              body: |
-                [[[
-                  const n=(id)=>{const v=Number(states[id]?.state);return Number.isFinite(v)?v:0};
-                  const pv=n('[[foxcat:energy.today.pv]]'), house=n('[[foxcat:energy.today.house]]'), imp=n('[[foxcat:energy.today.import]]'), self=n('[[foxcat:energy.today.self_consumed]]'), exp=n('[[foxcat:energy.today.export]]');
-                  const auto=Math.max(0,Math.min(100,n('[[foxcat:energy.today.self_consumption_pct]]')));
-                  const item=(icon,label,val,color)=>`<div class="fx-kpi"><i style="color:${color}">${icon}</i><div><small>${label}</small><b style="color:${color}">${val.toFixed(2)} kWh</b></div></div>`;
-                  return `
-                    <div class="fx-card-head"><div><b>Bilan du jour</b><span>Comptabilité native FoxCat</span></div><div class="fx-date">AUJOURD'HUI</div></div>
-                    <div class="fx-kpi-grid">
-                      ${item('☀','Production PV',pv,'#ffc347')}
-                      ${item('⌂','Consommation maison',house,'#3bcfff')}
-                      ${item('ϟ','Réseau prélevé',imp,'#ff6576')}
-                      ${item('🌿','Autoconsommé',self,'#56e0a0')}
-                      ${item('↪','Réinjection réseau',exp,'#9d76ff')}
-                      <div class="fx-gauge" style="--pct:${auto}"><div><b>${auto.toFixed(0)}%</b><span>autoconsommation</span></div></div>
-                    </div>
-                  `;
-                ]]]
-            styles: *foxcat_main_card_style
-            extra_styles: |
-              .fx-card-head{display:flex;justify-content:space-between;align-items:flex-start}.fx-card-head b{display:block;color:#f0f9ff;font-size:18px}.fx-card-head span{display:block;margin-top:4px;color:#6f8b9b;font-size:10px}.fx-date{font-size:8px;color:#6b8797;padding:7px 9px;border-radius:10px;background:rgba(255,255,255,.03)}.fx-kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:23px}.fx-kpi{min-height:64px;display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.045)}.fx-kpi i{width:31px;height:31px;display:flex;align-items:center;justify-content:center;border-radius:11px;font-style:normal;background:rgba(255,255,255,.035);font-size:18px}.fx-kpi small{display:block;color:#718a98;font-size:8px}.fx-kpi b{display:block;margin-top:3px;font-size:14px}.fx-gauge{position:relative;min-height:86px;border-radius:15px;background:conic-gradient(#31e1aa calc(var(--pct)*1%),rgba(255,255,255,.06) 0);display:flex;align-items:center;justify-content:center}.fx-gauge:after{content:"";position:absolute;inset:10px;border-radius:50%;background:#081a28}.fx-gauge div{position:relative;z-index:1;text-align:center}.fx-gauge b{display:block;color:#eaf8ff;font-size:21px}.fx-gauge span{font-size:7px;color:#71909f}
+                width: 100%;
 
-          # ================================================================
-          # PERFORMANCE SOLAIRE
-          # ================================================================
-          - type: custom:button-card
-            show_name: false
-            show_icon: false
-            show_state: false
-            grid_options:
-              columns: 4
-            tap_action:
-              action: navigate
-              navigation_path: |-
-                [[[
-                  const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                  return `${base}/energie`;
-                ]]]
-            custom_fields:
-              body: |
-                [[[
-                  const n=(id)=>{const v=Number(states[id]?.state);return Number.isFinite(v)?v:0};
-                  const pv=n('[[foxcat:energy.pv_power]]'), house=n('[[foxcat:energy.house_power]]');
-                  const cover=house>0?Math.max(0,Math.min(100,pv/house*100)):0;
-                  const auto=Math.max(0,Math.min(100,n('[[foxcat:energy.today.self_consumption_pct]]')));
-                  const autono=Math.max(0,Math.min(100,n('[[foxcat:energy.today.autonomy_pct]]')));
-                  const bar=(label,v,color)=>`<div class="fx-meter"><div><span>${label}</span><b>${v.toFixed(0)} %</b></div><div class="track"><i style="width:${v}%;background:${color}"></i></div></div>`;
-                  return `
-                    <div class="fx-card-head"><div><b>Performance solaire</b><span>Autonomie & efficacité</span></div><div class="fx-sun">☀</div></div>
-                    <div class="fx-big-score"><b>${auto.toFixed(0)}%</b><span>du solaire produit est autoconsommé aujourd'hui</span></div>
-                    ${bar('Couverture actuelle',cover,'linear-gradient(90deg,#20cfff,#71ddff)')}
-                    ${bar('Autoconsommation',auto,'linear-gradient(90deg,#ff9b39,#ffc560)')}
-                    ${bar('Autonomie solaire',autono,'linear-gradient(90deg,#29d5a5,#61efb9)')}
-                  `;
-                ]]]
-            styles: *foxcat_main_card_style
-            extra_styles: |
-              .fx-card-head{display:flex;justify-content:space-between}.fx-card-head b{display:block;color:#f0f9ff;font-size:18px}.fx-card-head span{display:block;margin-top:4px;color:#6f8b9b;font-size:10px}.fx-sun{color:#ffc347;font-size:27px}.fx-big-score{margin-top:24px;padding:16px 18px;border-radius:17px;background:linear-gradient(130deg,rgba(255,179,58,.09),rgba(0,177,255,.035));border:1px solid rgba(255,255,255,.045)}.fx-big-score b{color:#ffc354;font-size:29px}.fx-big-score span{display:block;margin-top:4px;color:#829ba8;font-size:9px}.fx-meter{margin-top:18px}.fx-meter>div:first-child{display:flex;justify-content:space-between}.fx-meter span{color:#7a93a0;font-size:10px}.fx-meter b{color:#eaf7fd;font-size:11px}.track{height:7px;border-radius:20px;background:#142b3a;margin-top:8px;overflow:hidden}.track i{display:block;height:100%;border-radius:20px}
+                display: flex;
+                align-items: center;
 
-          # ================================================================
-          # ONDULEUR
-          # ================================================================
-          - type: custom:button-card
-            entity: '[[foxcat:inverter.level_current]]'
-            show_name: false
-            show_icon: false
-            show_state: false
-            grid_options:
-              columns: 4
-            tap_action:
-              action: navigate
-              navigation_path: |-
-                [[[
-                  const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                  return `${base}/pri`;
-                ]]]
-            custom_fields:
-              body: |
-                [[[
-                  const n=(id)=>{const v=Number(states[id]?.state);return Number.isFinite(v)?v:0};
-                  const cur=Math.max(0,Math.min(100,n('[[foxcat:inverter.level_current]]'))), target=Math.max(0,Math.min(100,n('[[foxcat:inverter.level_target]]')));
-                  const pv=n('[[foxcat:energy.pv_power]]'), exp=n('[[foxcat:energy.grid_export]]'), state=states['[[foxcat:inverter.state]]']?.state ?? '—';
-                  const reason=states['[[foxcat:inverter.reason]]']?.state ?? '—';
-                  return `
-                    <div class="fx-card-head"><div><b>Onduleur / PRI</b><span>SolarEdge • pilotage prédictif</span></div><div class="fx-pill green">● ${state}</div></div>
-                    <div class="fx-device-row">
-                      <div class="fx-device-img inverter"></div>
-                      <div class="fx-ring" style="--pct:${cur}"><div><b>${cur.toFixed(0)}%</b><span>palier actuel</span></div></div>
-                      <div class="fx-target"><small>CIBLE EMS</small><b>${target.toFixed(0)} %</b><small>PRODUCTION</small><b>${pv>=1000?(pv/1000).toFixed(2)+' kW':Math.round(pv)+' W'}</b></div>
-                    </div>
-                    <div class="fx-device-bottom"><div><span>Injection réseau</span><b>${Math.round(exp)} W</b></div><div><span>Décision</span><b>${reason}</b></div></div>
-                  `;
-                ]]]
-            styles: *foxcat_main_card_style
-            extra_styles: |
-              .fx-card-head{display:flex;justify-content:space-between}.fx-card-head b{display:block;color:#f0f9ff;font-size:18px}.fx-card-head span{display:block;margin-top:4px;color:#6f8b9b;font-size:10px}.fx-pill{font-size:9px;padding:7px 10px;border-radius:13px}.fx-pill.green{color:#42e1a7;border:1px solid rgba(66,225,167,.17);background:rgba(66,225,167,.06)}.fx-device-row{display:grid;grid-template-columns:90px 1fr .85fr;gap:16px;align-items:center;margin-top:25px}.fx-device-img{height:125px;border-radius:18px;background-size:cover;background-position:center;border:1px solid rgba(255,255,255,.04)}.fx-device-img.inverter{background-image:linear-gradient(rgba(4,20,31,.08),rgba(4,20,31,.20)),url('/local/foxcat_energy/premium/inverter.webp')}.fx-ring{width:118px;height:118px;margin:auto;border-radius:50%;background:conic-gradient(#2fc7ff calc(var(--pct)*1%),rgba(255,255,255,.06) 0);display:flex;align-items:center;justify-content:center;position:relative;box-shadow:0 0 22px rgba(47,199,255,.08)}.fx-ring:after{content:"";position:absolute;inset:11px;border-radius:50%;background:#071b2a}.fx-ring div{position:relative;z-index:1;text-align:center}.fx-ring b{display:block;color:#f2fbff;font-size:25px}.fx-ring span,.fx-target small{display:block;color:#708a98;font-size:8px}.fx-target b{display:block;color:#39ccff;font-size:18px;margin:4px 0 11px}.fx-device-bottom{display:grid;grid-template-columns:.55fr 1.45fr;gap:10px;margin-top:19px}.fx-device-bottom div{padding:10px 12px;border-radius:13px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.04)}.fx-device-bottom span{display:block;color:#6f8896;font-size:8px}.fx-device-bottom b{display:block;color:#dfedf4;font-size:10px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                gap: 16px;
 
-          # ================================================================
-          # BOILER
-          # ================================================================
-          - type: custom:button-card
-            entity: '[[foxcat:boiler.temperature]]'
-            show_name: false
-            show_icon: false
-            show_state: false
-            grid_options:
-              columns: 4
-            tap_action:
-              action: navigate
-              navigation_path: |-
-                [[[
-                  const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                  return `${base}/boiler`;
-                ]]]
-            custom_fields:
-              body: |
-                [[[
-                  const n=(id)=>{const v=Number(states[id]?.state);return Number.isFinite(v)?v:0};
-                  const temp=n('[[foxcat:boiler.temperature]]'), power=n('[[foxcat:boiler.power]]');
-                  const demand=states['[[foxcat:boiler.demand]]']?.state ?? '—';
-                  const origin=states['[[foxcat:boiler.origin]]']?.state ?? '—';
-                  const over=states['[[foxcat:boiler.user_override]]']?.state ?? 'AUTO';
-                  const heat=power>100;
-                  return `
-                    <div class="fx-card-head"><div><b>Boiler / ECS</b><span>Stockage thermique intelligent</span></div><div class="fx-pill ${heat?'orange':'green'}">${heat?'● CHAUFFE':'● '+over}</div></div>
-                    <div class="fx-boiler-row"><div class="fx-boiler-img ${heat?'hot':''}"></div><div class="fx-boiler-values"><div><small>TEMPÉRATURE</small><b>${temp.toFixed(1)} °C</b></div><div><small>PUISSANCE</small><b>${Math.round(power)} W</b></div></div></div>
-                    <div class="fx-triple"><div><span>Demande</span><b>${demand}</b></div><div><span>Origine</span><b>${origin}</b></div><div><span>Commande</span><b>${over}</b></div></div>
-                  `;
-                ]]]
-            styles: *foxcat_main_card_style
-            extra_styles: |
-              .fx-card-head{display:flex;justify-content:space-between}.fx-card-head b{display:block;color:#f0f9ff;font-size:18px}.fx-card-head span{display:block;margin-top:4px;color:#6f8b9b;font-size:10px}.fx-pill{font-size:9px;padding:7px 10px;border-radius:13px}.fx-pill.green{color:#42e1a7;border:1px solid rgba(66,225,167,.17);background:rgba(66,225,167,.06)}.fx-pill.orange{color:#ff9d4b;border:1px solid rgba(255,157,75,.18);background:rgba(255,157,75,.06)}.fx-boiler-row{display:grid;grid-template-columns:120px 1fr;gap:24px;align-items:center;margin-top:24px}.fx-boiler-img{height:155px;border-radius:18px;background:url('/local/foxcat_energy/premium/boiler.webp') center/cover no-repeat;filter:saturate(.8)}.fx-boiler-img.hot{filter:saturate(1.1) drop-shadow(0 0 14px rgba(255,105,37,.22))}.fx-boiler-values{display:grid;gap:12px}.fx-boiler-values div{padding:14px 15px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.04)}.fx-boiler-values small{display:block;color:#708a98;font-size:8px}.fx-boiler-values b{display:block;color:#f2faff;font-size:21px;margin-top:4px}.fx-triple{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px}.fx-triple div{padding:10px;border-radius:12px;background:rgba(255,255,255,.02);text-align:center}.fx-triple span{display:block;color:#6f8895;font-size:7px}.fx-triple b{display:block;color:#d9eaf2;font-size:9px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                box-sizing: border-box;
+              }
 
-          # ================================================================
-          # MACHINES
-          # ================================================================
-          - type: custom:button-card
-            show_name: false
-            show_icon: false
-            show_state: false
-            grid_options:
-              columns: 4
-            tap_action:
-              action: navigate
-              navigation_path: |-
-                [[[
-                  const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                  return `${base}/appareils`;
-                ]]]
-            custom_fields:
-              body: |
-                [[[
-                  const s=(id)=>states[id]?.state ?? '—';
-                  const on=(id)=>['on','true','active','actif'].includes(String(s(id)).toLowerCase());
-                  const protectedCycle=on('[[foxcat:machines.protected]]');
-                  const tile=(icon,label,active,color)=>`<div class="fx-machine"><i>${icon}</i><span>${label}</span><b style="color:${color}">${active?'Cycle actif':'En attente'}</b><em class="${active?'run':''}"></em></div>`;
-                  return `
-                    <div class="fx-card-head"><div><b>Appareils pilotés</b><span>Cycles et charges flexibles</span></div><div class="fx-pill blue">${protectedCycle?'CYCLE PROTÉGÉ':'EMS PRÊT'}</div></div>
-                    <div class="fx-machine-visual"></div>
-                    <div class="fx-machine-grid">
-                      ${tile('◉','Lave-linge',on('[[foxcat:machines.washer.cycle]]'),'#39cfff')}
-                      ${tile('◌','Sèche-linge',on('[[foxcat:machines.dryer.cycle]]'),'#9f7dff')}
-                      ${tile('▣','Lave-vaisselle',on('[[foxcat:machines.dishwasher.cycle]]'),'#53e49d')}
-                    </div>
-                  `;
-                ]]]
-            styles: *foxcat_main_card_style
-            extra_styles: |
-              .fx-card-head{display:flex;justify-content:space-between}.fx-card-head b{display:block;color:#f0f9ff;font-size:18px}.fx-card-head span{display:block;margin-top:4px;color:#6f8b9b;font-size:10px}.fx-pill.blue{font-size:9px;padding:7px 10px;border-radius:13px;color:#4ed0ff;border:1px solid rgba(78,208,255,.16);background:rgba(78,208,255,.06)}.fx-machine-visual{height:92px;margin-top:20px;border-radius:17px;background:linear-gradient(90deg,rgba(5,20,31,.12),rgba(5,20,31,.18)),url('/local/foxcat_energy/premium/machines.webp') center/cover no-repeat;border:1px solid rgba(255,255,255,.04)}.fx-machine-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:13px}.fx-machine{padding:10px;border-radius:13px;background:rgba(255,255,255,.022);border:1px solid rgba(255,255,255,.04);position:relative}.fx-machine i{font-style:normal;color:#80a9bc}.fx-machine span{display:block;color:#dcebf2;font-size:9px;margin-top:5px}.fx-machine b{display:block;font-size:8px;margin-top:3px}.fx-machine em{position:absolute;left:10px;right:10px;bottom:6px;height:2px;border-radius:4px;background:#213847}.fx-machine em.run{background:linear-gradient(90deg,#30cfff,#52e1a3);box-shadow:0 0 8px rgba(49,207,255,.4)}
 
-          # ================================================================
-          # COÛTS & TARIFS
-          # ================================================================
-          - type: custom:button-card
-            show_name: false
-            show_icon: false
-            show_state: false
-            grid_options:
-              columns: 4
-            tap_action:
-              action: navigate
-              navigation_path: |-
-                [[[
-                  const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                  return `${base}/couts`;
-                ]]]
-            custom_fields:
-              body: |
-                [[[
-                  const n=(id)=>{const v=Number(states[id]?.state);return Number.isFinite(v)?v:0};
-                  const current=n('[[foxcat:pricing.active_buy]]'), next=n('[[foxcat:pricing.next_buy]]'), cost=n('[[foxcat:pricing.cost_today]]'), gain=n('[[foxcat:pricing.solar_gain_today]]');
-                  const regime=states['[[foxcat:pricing.regime]]']?.state ?? '—';
-                  const period=states['[[foxcat:pricing.period]]']?.state ?? '—';
-                  return `
-                    <div class="fx-card-head"><div><b>Coûts & tarifs</b><span>${regime} • ${period}</span></div><div class="fx-euro">€</div></div>
-                    <div class="fx-price-main"><small>COÛT RÉSEAU DU JOUR</small><b>${cost.toFixed(2)} €</b><span>Gain solaire estimé : <strong>${gain.toFixed(2)} €</strong></span></div>
-                    <div class="fx-price-grid"><div><span>Prix actuel</span><b>${current.toFixed(3)} €/kWh</b></div><div><span>Prix suivant</span><b>${next.toFixed(3)} €/kWh</b></div></div>
-                    <div class="fx-price-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-                  `;
-                ]]]
-            styles: *foxcat_main_card_style
-            extra_styles: |
-              .fx-card-head{display:flex;justify-content:space-between}.fx-card-head b{display:block;color:#f0f9ff;font-size:18px}.fx-card-head span{display:block;margin-top:4px;color:#6f8b9b;font-size:10px}.fx-euro{width:36px;height:36px;border-radius:13px;display:flex;align-items:center;justify-content:center;color:#ffc34b;background:rgba(255,195,75,.08);border:1px solid rgba(255,195,75,.12);font-weight:900;font-size:20px}.fx-price-main{margin-top:25px;padding:19px;border-radius:18px;background:linear-gradient(130deg,rgba(39,220,159,.08),rgba(0,174,255,.035));border:1px solid rgba(255,255,255,.04)}.fx-price-main small{display:block;color:#718c9b;font-size:8px}.fx-price-main>b{display:block;color:#44e1a5;font-size:32px;margin-top:3px}.fx-price-main span{display:block;color:#77919e;font-size:9px;margin-top:6px}.fx-price-main strong{color:#44e1a5}.fx-price-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}.fx-price-grid div{padding:12px;border-radius:13px;background:rgba(255,255,255,.025)}.fx-price-grid span{display:block;color:#708a98;font-size:8px}.fx-price-grid b{display:block;color:#def0f8;font-size:12px;margin-top:4px}.fx-price-wave{display:flex;gap:4px;align-items:end;height:28px;margin-top:17px}.fx-price-wave i{flex:1;border-radius:3px 3px 0 0;background:linear-gradient(#36cfff,#1f6d9a);opacity:.65}.fx-price-wave i:nth-child(1){height:30%}.fx-price-wave i:nth-child(2){height:42%}.fx-price-wave i:nth-child(3){height:55%}.fx-price-wave i:nth-child(4){height:44%}.fx-price-wave i:nth-child(5){height:72%}.fx-price-wave i:nth-child(6){height:85%}.fx-price-wave i:nth-child(7){height:76%}.fx-price-wave i:nth-child(8){height:60%}.fx-price-wave i:nth-child(9){height:48%}.fx-price-wave i:nth-child(10){height:68%}.fx-price-wave i:nth-child(11){height:58%}.fx-price-wave i:nth-child(12){height:43%}
+              /* ==========================================
+                 LOGO
+                 ========================================== */
 
-          # ================================================================
-          # DÉCISION ÉCONOMIQUE EMS
-          # ================================================================
-          - type: custom:button-card
-            entity: '[[foxcat:pricing.economic_decision]]'
-            show_name: false
-            show_icon: false
-            show_state: false
-            grid_options:
-              columns: 4
-            tap_action:
-              action: more-info
-            custom_fields:
-              body: |
-                [[[
-                  const e=states['[[foxcat:pricing.economic_decision]]'];
-                  const decision=e?.state ?? 'Indisponible';
-                  const a=e?.attributes ?? {};
-                  const reason=a.raison ?? a.reason ?? 'Analyse économique active.';
-                  const confidence=a.confiance ?? a.confidence ?? '—';
-                  const slot=states['[[foxcat:pricing.economic_best_slot]]']?.state ?? '—';
-                  const save=Number(states['[[foxcat:pricing.economic_saving]]']?.state);
-                  const saving=Number.isFinite(save)?`${save.toFixed(2)} €`:'—';
-                  return `
-                    <div class="fx-card-head"><div><b>Décision économique EMS</b><span>Analyse & recommandation en temps réel</span></div><div class="fx-brain">✦</div></div>
-                    <div class="fx-decision"><div class="leaf">🌿</div><div><b>${decision}</b><p>${reason}</p></div></div>
-                    <div class="fx-decision-grid"><div><span>Meilleur créneau</span><b>${slot}</b></div><div><span>Gain estimé</span><b>${saving}</b></div><div><span>Confiance</span><b>${confidence}</b></div></div>
-                    <div class="fx-quote">« Le bon kWh est celui qu'on utilise au meilleur moment. »</div>
-                  `;
-                ]]]
-            styles: *foxcat_main_card_style
-            extra_styles: |
-              .fx-card-head{display:flex;justify-content:space-between}.fx-card-head b{display:block;color:#f0f9ff;font-size:18px}.fx-card-head span{display:block;margin-top:4px;color:#6f8b9b;font-size:10px}.fx-brain{width:36px;height:36px;border-radius:13px;display:flex;align-items:center;justify-content:center;color:#63ecac;background:rgba(54,225,160,.08);font-size:22px}.fx-decision{display:grid;grid-template-columns:55px 1fr;gap:14px;align-items:center;margin-top:24px;padding:17px;border-radius:17px;background:linear-gradient(130deg,rgba(31,198,120,.18),rgba(8,91,74,.08));border:1px solid rgba(71,224,159,.20)}.fx-decision .leaf{width:48px;height:48px;border-radius:16px;background:rgba(54,230,157,.1);display:flex;align-items:center;justify-content:center;font-size:26px}.fx-decision b{color:#63efa9;font-size:15px;text-transform:uppercase}.fx-decision p{margin:6px 0 0;color:#a3c1b5;font-size:9px;line-height:1.35}.fx-decision-grid{display:grid;grid-template-columns:1.3fr 1fr .8fr;gap:8px;margin-top:13px}.fx-decision-grid div{padding:11px;border-radius:13px;background:rgba(255,255,255,.025)}.fx-decision-grid span{display:block;color:#6d8997;font-size:7px}.fx-decision-grid b{display:block;color:#dcecf3;font-size:10px;margin-top:4px}.fx-quote{text-align:right;margin-top:16px;color:#63808e;font-size:8px;font-style:italic}
+              .hfc-logo {
+                position: relative;
 
-          # ================================================================
-          # DIAGNOSTICS
-          # ================================================================
+                width: 54px;
+                height: 54px;
+
+                flex: 0 0 54px;
+
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                border-radius: 16px;
+
+                background:
+                  linear-gradient(
+                    135deg,
+                    rgba(255,126,25,0.15),
+                    rgba(0,211,255,0.12)
+                  );
+
+                border: 1px solid rgba(255,255,255,0.10);
+
+                box-shadow:
+                  -5px 0 20px rgba(255,110,15,0.12),
+                  5px 0 20px rgba(0,210,255,0.12);
+              }
+
+
+              .hfc-logo::before {
+                content: "";
+
+                position: absolute;
+
+                inset: 3px;
+
+                border-radius: 13px;
+
+                border-top:
+                  1px solid rgba(255,137,37,0.45);
+
+                border-right:
+                  1px solid rgba(0,216,255,0.40);
+              }
+
+
+              .hfc-logo ha-icon {
+                position: relative;
+
+                color: #ffffff;
+
+                --mdc-icon-size: 31px;
+
+                filter:
+                  drop-shadow(-3px 0 5px rgba(255,110,20,0.55))
+                  drop-shadow(3px 0 5px rgba(0,210,255,0.50));
+              }
+
+
+              /* ==========================================
+                 NOM
+                 ========================================== */
+
+              .hfc-name {
+                display: flex;
+                flex-direction: column;
+
+                justify-content: center;
+              }
+
+
+              .hfc-title {
+                white-space: nowrap;
+
+                font-size: 24px;
+                font-weight: 850;
+
+                line-height: 1;
+
+                letter-spacing: 0.055em;
+              }
+
+
+              .hfc-title .home {
+                color: #ffffff;
+              }
+
+
+              /* RENARD */
+
+              .hfc-title .fox {
+                color: #ff8a26;
+
+                text-shadow:
+                  0 0 12px rgba(255,120,20,0.25);
+              }
+
+
+              /* CHAT */
+
+              .hfc-title .cat {
+                color: #19d8ff;
+
+                text-shadow:
+                  0 0 12px rgba(0,210,255,0.25);
+              }
+
+
+              /* ENERGY */
+
+              .hfc-title .energy {
+                margin-left: 9px;
+
+                color: #a9bdcc;
+
+                font-weight: 600;
+              }
+
+
+              /* ==========================================
+                 SOUS-TITRE
+                 ========================================== */
+
+              .hfc-subtitle {
+                margin-top: 7px;
+
+                color: #71899d;
+
+                font-size: 8px;
+                font-weight: 600;
+
+                letter-spacing: 0.28em;
+              }
+
+
+              /* ==========================================
+                 LIGNE SIGNATURE
+                 ========================================== */
+
+              .hfc-line {
+                height: 2px;
+
+                flex: 1;
+
+                min-width: 60px;
+
+                margin-left: 12px;
+
+                display: flex;
+
+                border-radius: 10px;
+
+                overflow: hidden;
+
+                opacity: 0.75;
+              }
+
+
+              .line-orange {
+                width: 38%;
+
+                background:
+                  linear-gradient(
+                    90deg,
+                    rgba(255,130,25,0),
+                    #ff8125
+                  );
+
+                box-shadow:
+                  0 0 10px rgba(255,120,20,0.40);
+              }
+
+
+              .line-blue {
+                flex: 1;
+
+                background:
+                  linear-gradient(
+                    90deg,
+                    #00d8ff,
+                    rgba(0,216,255,0)
+                  );
+
+                box-shadow:
+                  0 0 10px rgba(0,216,255,0.40);
+              }
+          - type: custom:bubble-card
+            card_type: select
+            entity: [[foxcat:ems.mode]]
+            name: Mode EMS
+            icon: mdi:lightning-bolt-circle
+            sub_button:
+              main: []
+              bottom: []
+            force_icon: false
+            show_state: true
+            show_last_changed: false
+            show_last_updated: false
+            show_attribute: false
+            card_layout: large
+            theme: ios-dark-mode-dark-blue
+            rows: '1'
+            styles: |
+              .bubble-button-card-container {
+                position: relative;
+                min-height: 78px !important;
+                border-radius: 22px !important;
+                overflow: hidden;
+
+                background:
+                  linear-gradient(
+                    145deg,
+                    rgba(14, 20, 31, 0.96),
+                    rgba(8, 13, 22, 0.98)
+                  ) !important;
+
+                border: 1px solid rgba(255,255,255,0.07) !important;
+
+                box-shadow:
+                  0 14px 36px rgba(0,0,0,0.30),
+                  inset 0 1px 0 rgba(255,255,255,0.035) !important;
+
+                backdrop-filter: blur(18px);
+              }
+
+              /* Barre d'accent verticale */
+              .bubble-button-card-container::before {
+                content: "";
+                position: absolute;
+                left: 0;
+                top: 14px;
+                bottom: 14px;
+                width: 4px;
+                border-radius: 0 8px 8px 0;
+
+                background:
+                  ${state === 'Économie énergie'
+                    ? '#22d3ee'
+                  : state === 'Réinjection autorisée'
+                    ? '#38bdf8'
+                  : state === 'Réinjection refusée'
+                    ? '#fb7185'
+                  : state === 'ECS solaire'
+                    ? '#fbbf24'
+                  : state === 'Tarification dynamique'
+                    ? '#c084fc'
+                  : state === 'Confort'
+                    ? '#f472b6'
+                  : '#64748b'};
+              }
+
+              /* Halo discret */
+              .bubble-button-card-container::after {
+                content: "";
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 120px;
+                height: 100%;
+                pointer-events: none;
+
+                background:
+                  ${state === 'Économie énergie'
+                    ? 'linear-gradient(90deg, rgba(34,211,238,0.08), transparent)'
+                  : state === 'Réinjection autorisée'
+                    ? 'linear-gradient(90deg, rgba(56,189,248,0.08), transparent)'
+                  : state === 'Réinjection refusée'
+                    ? 'linear-gradient(90deg, rgba(251,113,133,0.08), transparent)'
+                  : state === 'ECS solaire'
+                    ? 'linear-gradient(90deg, rgba(251,191,36,0.08), transparent)'
+                  : state === 'Tarification dynamique'
+                    ? 'linear-gradient(90deg, rgba(192,132,252,0.08), transparent)'
+                  : state === 'Confort'
+                    ? 'linear-gradient(90deg, rgba(244,114,182,0.08), transparent)'
+                  : 'transparent'};
+              }
+
+              .bubble-icon-container {
+                width: 48px !important;
+                height: 48px !important;
+                margin-left: 6px !important;
+                border-radius: 15px !important;
+
+                background:
+                  ${state === 'Économie énergie'
+                    ? 'rgba(34,211,238,0.10)'
+                  : state === 'Réinjection autorisée'
+                    ? 'rgba(56,189,248,0.10)'
+                  : state === 'Réinjection refusée'
+                    ? 'rgba(251,113,133,0.10)'
+                  : state === 'ECS solaire'
+                    ? 'rgba(251,191,36,0.10)'
+                  : state === 'Tarification dynamique'
+                    ? 'rgba(192,132,252,0.10)'
+                  : state === 'Confort'
+                    ? 'rgba(244,114,182,0.10)'
+                  : 'rgba(255,255,255,0.05)'} !important;
+
+                border:
+                  1px solid
+                  ${state === 'Économie énergie'
+                    ? 'rgba(34,211,238,0.16)'
+                  : state === 'Réinjection autorisée'
+                    ? 'rgba(56,189,248,0.16)'
+                  : state === 'Réinjection refusée'
+                    ? 'rgba(251,113,133,0.16)'
+                  : state === 'ECS solaire'
+                    ? 'rgba(251,191,36,0.16)'
+                  : state === 'Tarification dynamique'
+                    ? 'rgba(192,132,252,0.16)'
+                  : state === 'Confort'
+                    ? 'rgba(244,114,182,0.16)'
+                  : 'rgba(255,255,255,0.06)'} !important;
+              }
+
+              .bubble-icon {
+                color:
+                  ${state === 'Économie énergie'
+                    ? '#22d3ee'
+                  : state === 'Réinjection autorisée'
+                    ? '#38bdf8'
+                  : state === 'Réinjection refusée'
+                    ? '#fb7185'
+                  : state === 'ECS solaire'
+                    ? '#fbbf24'
+                  : state === 'Tarification dynamique'
+                    ? '#c084fc'
+                  : state === 'Confort'
+                    ? '#f472b6'
+                  : '#94a3b8'} !important;
+
+                filter:
+                  ${state === 'Économie énergie'
+                    ? 'drop-shadow(0 0 8px rgba(34,211,238,0.35))'
+                  : state === 'Réinjection autorisée'
+                    ? 'drop-shadow(0 0 8px rgba(56,189,248,0.35))'
+                  : state === 'Réinjection refusée'
+                    ? 'drop-shadow(0 0 8px rgba(251,113,133,0.35))'
+                  : state === 'ECS solaire'
+                    ? 'drop-shadow(0 0 8px rgba(251,191,36,0.35))'
+                  : state === 'Tarification dynamique'
+                    ? 'drop-shadow(0 0 8px rgba(192,132,252,0.35))'
+                  : state === 'Confort'
+                    ? 'drop-shadow(0 0 8px rgba(244,114,182,0.35))'
+                  : 'none'};
+              }
+
+              .bubble-name {
+                font-size: 10px !important;
+                font-weight: 800 !important;
+                text-transform: uppercase;
+                letter-spacing: 1.5px;
+                color: rgba(255,255,255,0.38) !important;
+                margin-bottom: 2px !important;
+              }
+
+              .bubble-state {
+                font-size: 18px !important;
+                font-weight: 850 !important;
+                letter-spacing: -0.2px;
+
+                color:
+                  ${state === 'Économie énergie'
+                    ? '#a5f3fc'
+                  : state === 'Réinjection autorisée'
+                    ? '#bae6fd'
+                  : state === 'Réinjection refusée'
+                    ? '#fecdd3'
+                  : state === 'ECS solaire'
+                    ? '#fde68a'
+                  : state === 'Tarification dynamique'
+                    ? '#e9d5ff'
+                  : state === 'Confort'
+                    ? '#fbcfe8'
+                  : '#f8fafc'} !important;
+              }
+
+              .bubble-select-card {
+                border-radius: 16px !important;
+                background: rgba(255,255,255,0.035) !important;
+                border: 1px solid rgba(255,255,255,0.05) !important;
+              }
+
+              .bubble-dropdown-container {
+                background: rgba(255,255,255,0.03) !important;
+                border-radius: 14px !important;
+              }
+          - type: custom:bubble-card
+            card_type: select
+            entity: [[foxcat:pricing.network_policy]]
+            grid_options:
+              columns: 6
+          - type: custom:bubble-card
+            card_type: select
+            entity: [[foxcat:pricing.regime]]
+            grid_options:
+              columns: 6
+      - type: grid
+        cards:
           - type: custom:button-card
             show_name: false
-            show_icon: false
             show_state: false
+            show_icon: false
             grid_options:
-              columns: 4
-            tap_action:
-              action: navigate
-              navigation_path: |-
-                [[[
-                  const base = window.location.pathname.replace(/\/[^\/]*$/, '');
-                  return `${base}/technique`;
-                ]]]
+              columns: full
             custom_fields:
-              body: |
+              main: |
                 [[[
-                  const s=(id)=>states[id]?.state ?? '—';
-                  const row=(name,val,detail)=>{
-                    const low=String(val).toLowerCase();
-                    const ok=!['error','erreur','nok','timeout','unavailable','indisponible','unknown'].some(x=>low.includes(x));
-                    return `<div class="fx-diag-row"><span class="dot ${ok?'ok':'bad'}"></span><b>${name}</b><strong>${val}</strong><em>${detail}</em></div>`;
+                  /* ==========================================================
+                     FOXCAT ENERGY V1.3.200 — COCKPIT EMS
+                     Données prioritaires : entités natives FoxCat Energy.
+                     Fallbacks conservés uniquement pour les mesures journalières
+                     et pour faciliter la migration depuis l'ancienne carte.
+                     ========================================================== */
+
+                  const norm = (value) => String(value ?? '')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, ' ')
+                    .trim();
+
+                  const entityExists = (id) => !!(id && states[id]);
+
+                  const findFox = (domain, words = [], candidates = []) => {
+                    for (const id of candidates) {
+                      if (entityExists(id)) return id;
+                    }
+
+                    const wanted = words.map(norm).filter(Boolean);
+                    const prefix = `${domain}.`;
+                    const ids = Object.keys(states).filter((id) => id.startsWith(prefix));
+
+                    const match = ids.find((id) => {
+                      const st = states[id];
+                      const friendly = st?.attributes?.friendly_name || '';
+                      const haystack = norm(`${id} ${friendly}`);
+                      const isFox = haystack.includes('foxcat energy') || norm(id).includes('foxcat energy');
+                      return isFox && wanted.every((w) => haystack.includes(w));
+                    });
+
+                    return match || null;
                   };
+
+                  const stateOf = (id, fallback = '—') => {
+                    if (!id || !states[id]) return fallback;
+                    const value = states[id].state;
+                    if (value === undefined || value === null || value === '' ||
+                        value === 'unknown' || value === 'unavailable') return fallback;
+                    return value;
+                  };
+
+                  const numberOf = (id, fallback = 0) => {
+                    const value = Number.parseFloat(stateOf(id, ''));
+                    return Number.isFinite(value) ? value : fallback;
+                  };
+
+                  const isOn = (id) => id && states[id]?.state === 'on';
+
+                  const fmtW = (value) => {
+                    const v = Math.abs(Number(value) || 0);
+                    return v >= 1000 ? `${(v / 1000).toFixed(2)} kW` : `${Math.round(v)} W`;
+                  };
+
+                  const fmtSignedW = (value) => {
+                    const n = Number(value) || 0;
+                    const sign = n > 0 ? '+' : n < 0 ? '−' : '';
+                    return `${sign}${fmtW(n)}`;
+                  };
+
+                  const fmtPct = (value) => `${Math.round(Number(value) || 0)} %`;
+                  const fmtKwh = (value) => `${Number(value || 0).toFixed(1)} kWh`;
+                  const fmtEuro = (value) => `${Number(value || 0).toFixed(2)} €`;
+                  const clamp = (value, min, max) => Math.min(Math.max(Number(value) || 0, min), max);
+
+                  /* ==========================================================
+                     RÉSOLUTION DES ENTITÉS NATIVES FOXCAT
+                     ========================================================== */
+
+                  const E = {
+                    mode: findFox('select', ['mode', 'ems'], [
+                      '[[foxcat:ems.mode]]'
+                    ]),
+
+                    regulation: findFox('switch', ['regulation', 'foxcat', 'active'], [
+                      '[[foxcat:ems.regulation_active]]'
+                    ]),
+
+                    dataValid: findFox('binary_sensor', ['donnees', 'energetiques', 'valides']),
+
+                    phase: findFox('sensor', ['phase', 'regulation']),
+                    coreAck: findFox('sensor', ['validation', 'execution', 'ems']),
+                    lastDecision: findFox('sensor', ['derniere', 'decision', 'ems']),
+
+                    pv: findFox('sensor', ['puissance', 'production', 'photovoltaique'], [
+                      '[[foxcat:energy.pv_power]]'
+                    ]),
+                    house: findFox('sensor', ['puissance', 'consommation', 'maison'], [
+                      '[[foxcat:energy.house_power]]'
+                    ]),
+                    export: findFox('sensor', ['puissance', 'reinjectee', 'reseau'], [
+                      '[[foxcat:energy.grid_export]]'
+                    ]),
+                    import: findFox('sensor', ['puissance', 'prelevee', 'reseau'], [
+                      '[[foxcat:energy.grid_import]]'
+                    ]),
+                    gridNet: findFox('sensor', ['puissance', 'nette', 'reseau'], [
+                      '[[foxcat:energy.grid_power]]'
+                    ]),
+
+                    priLevel: findFox('sensor', ['niveau', 'puissance', 'pri', 'actuel']),
+                    priTarget: findFox('sensor', ['niveau', 'puissance', 'pri', 'cible']),
+                    priDirection: findFox('sensor', ['direction', 'pri']),
+                    priCode: findFox('sensor', ['code', 'rrcr']),
+                    priAckRrcr: findFox('sensor', ['ack', 'rrcr']),
+                    priAckInverter: findFox('sensor', ['ack', 'onduleur']),
+                    priAckGrid: findFox('sensor', ['ack', 'reseau']),
+                    priReason: findFox('sensor', ['derniere', 'decision', 'pri']),
+
+                    boilerTemp: findFox('sensor', ['temperature', 'chauffe', 'eau']),
+                    boilerPower: findFox('sensor', ['puissance', 'chauffe', 'eau']),
+                    boilerDemand: findFox('sensor', ['demande', 'chauffe', 'eau']),
+                    boilerOrigin: findFox('sensor', ['origine', 'demande', 'chauffe', 'eau']),
+                    boilerExec: findFox('sensor', ['etat', 'execution', 'chauffe', 'eau']),
+                    boilerPhysical: findFox('binary_sensor', ['boiler', 'physique']),
+
+                    solarWindow: findFox('binary_sensor', ['fenetre', 'solaire', 'exploitable']),
+                    solarConfidence: findFox('sensor', ['confiance', 'solaire']),
+                    solarPotential: findFox('sensor', ['potentiel', 'solaire']),
+                    solarTrend: findFox('sensor', ['tendance', 'solaire']),
+                    solarStart: findFox('sensor', ['debut', 'fenetre', 'solaire']),
+                    solarEnd: findFox('sensor', ['fin', 'fenetre', 'solaire']),
+                    solarReason: findFox('sensor', ['raison', 'prevision', 'solaire']),
+
+                    buyPrice: findFox('sensor', ['prix', 'achat', 'actif']),
+                    tariffPeriod: findFox('sensor', ['periode', 'tarifaire']),
+                    priceStatus: findFox('sensor', ['statut', 'prix'])
+                  };
+
+                  /* ==========================================================
+                     VALEURS INSTANTANÉES
+                     ========================================================== */
+
+                  const pv = Math.max(numberOf(E.pv, numberOf('[[foxcat:sources.pv]]', 0)), 0);
+                  const house = Math.max(numberOf(E.house, numberOf('[[foxcat:legacy.sensor_consommation_reelle_maison]]', 0)), 0);
+                  const gridExport = Math.max(numberOf(E.export, numberOf('[[foxcat:sources.grid_fallback]]', 0)), 0);
+                  const gridImport = Math.max(numberOf(E.import, numberOf('[[foxcat:sources.grid_signed]]', 0)), 0);
+                  const gridNet = E.gridNet ? numberOf(E.gridNet, gridExport - gridImport) : gridExport - gridImport;
+
+                  const solarCover = house > 0 ? clamp((pv / house) * 100, 0, 100) : (pv > 0 ? 100 : 0);
+
+                  const priLevel = clamp(numberOf(E.priLevel, 100), 0, 100);
+                  const priTarget = clamp(numberOf(E.priTarget, priLevel), 0, 100);
+                  const priDirection = stateOf(E.priDirection, 'maintien');
+                  const priCode = stateOf(E.priCode, '—');
+                  const priAckRrcr = stateOf(E.priAckRrcr, '—');
+                  const priAckInverter = stateOf(E.priAckInverter, '—');
+                  const priAckGrid = stateOf(E.priAckGrid, '—');
+                  const priReason = stateOf(E.priReason, 'Aucune décision PRI disponible.');
+
+                  const boilerTemp = numberOf(E.boilerTemp,
+                    numberOf('[[foxcat:boiler.temperature_source]]', 0));
+                  const boilerPower = Math.max(numberOf(E.boilerPower,
+                    numberOf('[[foxcat:boiler.power_source]]', 0)), 0);
+                  const boilerRunning = E.boilerPhysical ? isOn(E.boilerPhysical) : boilerPower > 200;
+                  const boilerDemand = stateOf(E.boilerDemand, 'AUCUNE');
+                  const boilerOrigin = stateOf(E.boilerOrigin, 'AUCUNE');
+                  const boilerExec = stateOf(E.boilerExec, boilerRunning ? 'EN COURS' : 'IDLE');
+
+                  const solarWindow = isOn(E.solarWindow);
+                  const solarConfidence = clamp(numberOf(E.solarConfidence, 0), 0, 100);
+                  const solarPotential = stateOf(E.solarPotential, 'Aucun');
+                  const solarTrend = stateOf(E.solarTrend, '—');
+                  const solarStart = stateOf(E.solarStart, '--:--');
+                  const solarEnd = stateOf(E.solarEnd, '--:--');
+                  const solarReason = stateOf(E.solarReason, 'Aucune analyse solaire disponible.');
+
+                  const mode = stateOf(E.mode, 'Inconnu');
+                  const regulationActive = E.regulation ? isOn(E.regulation) : true;
+                  const dataValid = E.dataValid ? isOn(E.dataValid) : true;
+                  const phase = stateOf(E.phase, '—');
+                  const coreAck = stateOf(E.coreAck, '—');
+                  const lastDecision = stateOf(E.lastDecision, 'Aucune décision EMS disponible.');
+
+                  /* ==========================================================
+                     TARIF NATIF FOXCAT
+                     ========================================================== */
+
+                  const buyPrice = numberOf(E.buyPrice,
+                    numberOf('[[foxcat:pricing.source.current]]', 0));
+                  const tariffPeriod = stateOf(E.tariffPeriod, '—');
+                  const priceStatus = stateOf(E.priceStatus, '—');
+
+                  /* ==========================================================
+                     BILAN JOURNALIER — comptabilité native FoxCat
+                     ========================================================== */
+
+                  const productionToday = Math.max(numberOf('[[foxcat:energy.today.pv]]', 0), 0);
+                  const consumptionToday = Math.max(numberOf('[[foxcat:energy.today.house]]', 0), 0);
+                  const injectionToday = Math.max(numberOf('[[foxcat:energy.today.export]]', 0), 0);
+                  const selfConsumed = Math.max(numberOf('[[foxcat:energy.today.self_consumed]]', 0), 0);
+                  const selfConsumption = clamp(numberOf('[[foxcat:energy.today.self_consumption_pct]]', 0), 0, 100);
+                  const gridEnergyToday = Math.max(numberOf('[[foxcat:energy.today.import]]', 0), 0);
+                  const dailyCost = Math.max(numberOf('[[foxcat:pricing.cost_today]]', 0), 0);
+
+                  /* ==========================================================
+                     COULEURS / ÉTATS
+                     ========================================================== */
+
+                  const modeMap = {
+                    'Économie énergie': ['🌿', '#34d399'],
+                    'Economie énergie': ['🌿', '#34d399'],
+                    'ECS solaire': ['♨️', '#fb923c'],
+                    'Zéro injection': ['⛔', '#fb7185'],
+                    'Prix dynamique': ['📈', '#a78bfa'],
+                    'Manuel': ['🖐️', '#60a5fa']
+                  };
+                  const [modeIcon, modeColor] = modeMap[mode] || ['⚡', '#c4b5fd'];
+
+                  let gridIcon = '⚖️';
+                  let gridLabel = 'Équilibre';
+                  let gridColor = '#94a3b8';
+                  let gridValue = 0;
+
+                  if (gridExport > 20) {
+                    gridIcon = '↗';
+                    gridLabel = 'Réinjection';
+                    gridColor = '#34d399';
+                    gridValue = gridExport;
+                  } else if (gridImport > 20) {
+                    gridIcon = '↙';
+                    gridLabel = 'Prélèvement';
+                    gridColor = '#fb7185';
+                    gridValue = gridImport;
+                  }
+
+                  let priColor = '#34d399';
+                  if (priLevel < 100) priColor = '#facc15';
+                  if (priAckRrcr === 'FAILED' || priAckInverter === 'FAILED' || priAckGrid === 'FAILED') priColor = '#fb7185';
+                  if (String(priAckGrid).toUpperCase().includes('PENDING')) priColor = '#60a5fa';
+
+                  const priArrow = priTarget > priLevel ? '↑' : priTarget < priLevel ? '↓' : '→';
+
+                  const boilerColor = boilerRunning ? '#fb923c' : '#94a3b8';
+                  const solarColor = solarWindow ? '#facc15' : '#64748b';
+                  const systemColor = regulationActive && dataValid ? '#34d399' : '#fb7185';
+
+                  /* ==========================================================
+                     RENDU
+                     ========================================================== */
+
                   return `
-                    <div class="fx-card-head"><div><b>Système & diagnostics</b><span>État opérationnel des composants</span></div><div class="fx-pill green">SUPERVISION</div></div>
-                    <div class="fx-diag-list">
-                      ${row('Energy Bus',s('[[foxcat:energy_bus.state]]'),'Communication')}
-                      ${row('EMS Core',s('[[foxcat:ems.fsm_status]]'),'Décision')}
-                      ${row('Onduleur Core',s('[[foxcat:inverter.state]]'),'PRI')}
-                      ${row('Métronome',s('[[foxcat:metronome.status]]'),'Synchronisation')}
-                      ${row('Sources énergie',s('[[foxcat:energy.valid]]'),'Données')}
+                    <div class="foxcat">
+
+                      <div class="header">
+                        <div>
+                          <div class="brand"><span>FOX</span><span class="cat">CAT</span><span class="energy">ENERGY</span></div>
+                          <div class="subtitle">EMS V1.3.200 · COCKPIT TEMPS RÉEL</div>
+                        </div>
+                        <div class="system-pill" style="color:${systemColor};border-color:${systemColor}35;background:${systemColor}10;">
+                          <span class="live-dot" style="background:${systemColor};box-shadow:0 0 10px ${systemColor};"></span>
+                          ${regulationActive ? (dataValid ? 'EMS ACTIF' : 'DONNÉES INVALIDES') : 'EMS EN VEILLE'}
+                        </div>
+                      </div>
+
+                      <div class="topline">
+                        <div>
+                          <div class="eyebrow">MODE ACTUEL</div>
+                          <div class="mode" style="color:${modeColor};">${modeIcon} ${mode}</div>
+                        </div>
+                        <div class="core-mini">
+                          <span>CORE <b>${phase}</b></span>
+                          <span>ACK <b>${coreAck}</b></span>
+                        </div>
+                      </div>
+
+                      <div class="realtime-grid">
+
+                        <div class="rt-card pv-card">
+                          <div class="rt-head"><span>☀️</span><span>PV ACTUEL</span></div>
+                          <div class="rt-value pv">${fmtW(pv)}</div>
+                          <div class="rt-sub">Production photovoltaïque</div>
+                          <div class="mini-bar"><div class="mini-fill solar" style="width:${solarCover}%;"></div></div>
+                          <div class="rt-foot"><span>Couverture maison</span><b>${Math.round(solarCover)} %</b></div>
+                        </div>
+
+                        <div class="rt-card grid-card">
+                          <div class="rt-head"><span style="color:${gridColor};">${gridIcon}</span><span>RÉSEAU</span></div>
+                          <div class="rt-value" style="color:${gridColor};">${fmtW(gridValue)}</div>
+                          <div class="rt-sub" style="color:${gridColor};">${gridLabel}</div>
+                          <div class="rt-foot"><span>Export</span><b>${fmtW(gridExport)}</b></div>
+                          <div class="rt-foot"><span>Import</span><b>${fmtW(gridImport)}</b></div>
+                          <div class="rt-foot"><span>Net FoxCat</span><b>${fmtSignedW(gridNet)}</b></div>
+                        </div>
+
+                        <div class="rt-card pri-card">
+                          <div class="rt-head"><span>⚙️</span><span>ONDULEUR SOLAREDGE</span></div>
+                          <div class="pri-main">
+                            <div class="rt-value" style="color:${priColor};">${Math.round(priLevel)} %</div>
+                            <div class="pri-target">${priArrow} ${Math.round(priTarget)} %</div>
+                          </div>
+                          <div class="mini-bar"><div class="mini-fill pri" style="width:${priLevel}%;background:${priColor};"></div></div>
+                          <div class="rt-foot"><span>Direction</span><b>${priDirection}</b></div>
+                          <div class="rt-foot"><span>RRCR</span><b>${priCode}</b></div>
+                          <div class="ack-row">
+                            <span class="ack-chip">RRCR ${priAckRrcr}</span>
+                            <span class="ack-chip">INV ${priAckInverter}</span>
+                            <span class="ack-chip">RÉSEAU ${priAckGrid}</span>
+                          </div>
+                        </div>
+
+                        <div class="rt-card boiler-card">
+                          <div class="rt-head"><span>♨️</span><span>BOILER</span></div>
+                          <div class="boiler-main">
+                            <div class="rt-value">${boilerTemp.toFixed(1)}°</div>
+                            <div class="boiler-state" style="color:${boilerColor};">${boilerRunning ? '● CHAUFFE' : '○ ATTENTE'}</div>
+                          </div>
+                          <div class="rt-foot"><span>Puissance</span><b>${fmtW(boilerPower)}</b></div>
+                          <div class="rt-foot"><span>Demande</span><b>${boilerDemand}</b></div>
+                          <div class="rt-foot"><span>Origine</span><b>${boilerOrigin}</b></div>
+                          <div class="rt-foot"><span>Exécution</span><b>${boilerExec}</b></div>
+                        </div>
+
+                      </div>
+
+                      <div class="solar-panel" style="border-color:${solarColor}30;">
+                        <div class="section-head">
+                          <div><span class="section-icon">🌤️</span> IA · SOLAIRE</div>
+                          <div class="solar-status" style="color:${solarColor};">${solarWindow ? '● FENÊTRE EXPLOITABLE' : '○ SURVEILLANCE'}</div>
+                        </div>
+
+                        <div class="solar-grid">
+                          <div class="solar-stat"><span>Confiance</span><b>${fmtPct(solarConfidence)}</b></div>
+                          <div class="solar-stat"><span>Potentiel</span><b>${solarPotential}</b></div>
+                          <div class="solar-stat"><span>Tendance</span><b>${solarTrend}</b></div>
+                          <div class="solar-stat"><span>Fenêtre</span><b>${solarStart} → ${solarEnd}</b></div>
+                        </div>
+
+                        <div class="confidence-bar"><div style="width:${solarConfidence}%;"></div></div>
+                        <div class="reason">${solarReason}</div>
+                      </div>
+
+                      <div class="decision-grid">
+                        <div class="decision-card">
+                          <div class="decision-title">⚡ DERNIÈRE DÉCISION EMS</div>
+                          <div class="decision-text">${lastDecision}</div>
+                        </div>
+                        <div class="decision-card">
+                          <div class="decision-title">⚙️ DERNIÈRE DÉCISION ONDULEUR</div>
+                          <div class="decision-text">${priReason}</div>
+                        </div>
+                      </div>
+
+                      <div class="tariff-row">
+                        <div><span>Tarif FoxCat</span><b>${tariffPeriod}</b></div>
+                        <div><span>Prix achat actif</span><b>${buyPrice.toFixed(3)} €/kWh</b></div>
+                        <div><span>Statut prix</span><b>${priceStatus}</b></div>
+                      </div>
+
+                      <div class="today">
+                        <div class="section-head"><div>AUJOURD’HUI</div><div class="section-muted">bilan énergétique</div></div>
+                        <div class="today-grid">
+                          <div class="today-item"><span>☀️</span><b>${fmtKwh(productionToday)}</b><small>Production</small></div>
+                          <div class="today-item"><span>🏠</span><b>${fmtKwh(consumptionToday)}</b><small>Consommation</small></div>
+                          <div class="today-item"><span>↗️</span><b>${fmtKwh(injectionToday)}</b><small>Injection</small></div>
+                          <div class="today-item"><span>♻️</span><b>${fmtPct(selfConsumption)}</b><small>Autoconsommation</small></div>
+                          <div class="today-item"><span>💶</span><b>${fmtEuro(dailyCost)}</b><small>Coût estimé</small></div>
+                        </div>
+                      </div>
+
+                      <div class="footer">
+                        <span>FOXCAT ENERGY V1.3.200</span>
+                        <span>Données natives FoxCat · temps réel</span>
+                      </div>
                     </div>
-                    <div class="fx-diag-foot"><span>FoxCat Energy</span><b>v1.6.154 • Premium UI</b></div>
                   `;
                 ]]]
-            styles: *foxcat_main_card_style
-            extra_styles: |
-              .fx-card-head{display:flex;justify-content:space-between}.fx-card-head b{display:block;color:#f0f9ff;font-size:18px}.fx-card-head span{display:block;margin-top:4px;color:#6f8b9b;font-size:10px}.fx-pill.green{font-size:8px;padding:7px 9px;border-radius:12px;color:#43e2a7;border:1px solid rgba(67,226,167,.16);background:rgba(67,226,167,.06)}.fx-diag-list{margin-top:20px}.fx-diag-row{display:grid;grid-template-columns:12px 1.15fr .8fr 1fr;align-items:center;gap:8px;min-height:35px;border-bottom:1px solid rgba(255,255,255,.045);font-size:9px}.fx-diag-row .dot{width:7px;height:7px;border-radius:50%}.fx-diag-row .dot.ok{background:#49e6a8;box-shadow:0 0 9px rgba(73,230,168,.65)}.fx-diag-row .dot.bad{background:#ff5f74;box-shadow:0 0 9px rgba(255,95,116,.55)}.fx-diag-row b{color:#dcecf4;font-size:10px}.fx-diag-row strong{color:#50dda7;font-size:9px}.fx-diag-row em{color:#6e8997;font-style:normal;font-size:8px}.fx-diag-foot{display:flex;justify-content:space-between;margin-top:17px;padding-top:10px;color:#5f7f8e;font-size:8px}.fx-diag-foot b{color:#6d9aaf}
+            styles:
+              grid:
+                - grid-template-areas: '"main"'
+                - grid-template-columns: 1fr
+                - grid-template-rows: auto
+              card:
+                - padding: 0
+                - border-radius: 30px
+                - overflow: hidden
+                - border: 1px solid rgba(255,255,255,0.07)
+                - background: >-
+                    radial-gradient(circle at 92% 0%, rgba(34,211,238,.08),
+                    transparent 28%), radial-gradient(circle at 0% 100%,
+                    rgba(251,146,60,.07), transparent 30%),
+                    linear-gradient(145deg,#070b14 0%,#0c1320 45%,#101827 100%)
+                - box-shadow: 0 18px 55px rgba(0,0,0,.32)
+              custom_fields:
+                main:
+                  - width: 100%
+            extra_styles: >
+              * { box-sizing: border-box; }
+
+
+              .foxcat {
+                padding: 22px;
+                color: #f8fafc;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              }
+
+
+              .header, .topline, .section-head, .rt-foot, .boiler-main,
+              .pri-main, .footer {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+              }
+
+
+              .header { gap: 14px; }
+
+              .brand { font-size: 21px; font-weight: 950; letter-spacing: 1.5px;
+              }
+
+              .brand .cat { color: #fb923c; }
+
+              .brand .energy { margin-left: 7px; color: #22d3ee; font-size:
+              11px; letter-spacing: 2.5px; }
+
+              .subtitle { margin-top: 4px; color: #64748b; font-size: 9px;
+              letter-spacing: .8px; }
+
+
+              .system-pill {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                padding: 8px 11px;
+                border-radius: 20px;
+                border: 1px solid;
+                font-size: 9px;
+                font-weight: 900;
+                letter-spacing: .8px;
+                white-space: nowrap;
+              }
+
+
+              .live-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+
+              .topline {
+                margin-top: 20px;
+                padding-bottom: 16px;
+                border-bottom: 1px solid rgba(255,255,255,.06);
+              }
+
+
+              .eyebrow { color: #64748b; font-size: 9px; font-weight: 800;
+              letter-spacing: 1.4px; }
+
+              .mode { margin-top: 5px; font-size: 18px; font-weight: 950; }
+
+              .core-mini { display: flex; gap: 7px; flex-wrap: wrap;
+              justify-content: flex-end; }
+
+              .core-mini span { padding: 6px 8px; border-radius: 10px;
+              background: rgba(255,255,255,.035); color: #64748b; font-size:
+              8px; }
+
+              .core-mini b { color: #e2e8f0; }
+
+
+              .realtime-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 10px;
+                margin-top: 16px;
+              }
+
+
+              .rt-card {
+                min-width: 0;
+                padding: 14px;
+                border-radius: 19px;
+                border: 1px solid rgba(255,255,255,.05);
+                background: rgba(255,255,255,.026);
+              }
+
+
+              .pv-card { background: radial-gradient(circle at 100% 0%,
+              rgba(250,204,21,.09), transparent 48%), rgba(255,255,255,.026); }
+
+              .grid-card { background: radial-gradient(circle at 100% 0%,
+              rgba(96,165,250,.08), transparent 48%), rgba(255,255,255,.026); }
+
+              .pri-card { background: radial-gradient(circle at 100% 0%,
+              rgba(167,139,250,.09), transparent 48%), rgba(255,255,255,.026); }
+
+              .boiler-card { background: radial-gradient(circle at 100% 0%,
+              rgba(251,146,60,.09), transparent 48%), rgba(255,255,255,.026); }
+
+
+              .rt-head { display: flex; align-items: center; gap: 7px; color:
+              #94a3b8; font-size: 9px; font-weight: 900; letter-spacing: .9px; }
+
+              .rt-value { margin-top: 10px; font-size: 27px; font-weight: 950;
+              letter-spacing: -.5px; }
+
+              .rt-value.pv { color: #facc15; }
+
+              .rt-sub { margin-top: 1px; color: #64748b; font-size: 8px; }
+
+
+              .rt-foot { gap: 12px; margin-top: 8px; padding-top: 7px;
+              border-top: 1px solid rgba(255,255,255,.04); color: #64748b;
+              font-size: 8px; }
+
+              .rt-foot b { color: #e2e8f0; font-size: 9px; text-align: right;
+              overflow: hidden; text-overflow: ellipsis; }
+
+
+              .mini-bar { height: 6px; margin-top: 10px; border-radius: 10px;
+              overflow: hidden; background: rgba(255,255,255,.07); }
+
+              .mini-fill { height: 100%; border-radius: 10px; transition: width
+              .4s ease; }
+
+              .mini-fill.solar { background:
+              linear-gradient(90deg,#f59e0b,#facc15,#34d399); }
+
+
+              .pri-main { margin-top: 1px; gap: 10px; }
+
+              .pri-target { padding: 6px 9px; border-radius: 10px; background:
+              rgba(255,255,255,.035); color: #cbd5e1; font-size: 12px;
+              font-weight: 900; }
+
+
+              .ack-row { display: grid; grid-template-columns: repeat(3,1fr);
+              gap: 5px; margin-top: 8px; }
+
+              .ack-chip { padding: 5px 4px; border-radius: 8px; background:
+              rgba(255,255,255,.035); color: #94a3b8; font-size: 6.5px;
+              font-weight: 800; text-align: center; white-space: nowrap;
+              overflow: hidden; text-overflow: ellipsis; }
+
+
+              .boiler-state { font-size: 9px; font-weight: 900; }
+
+
+              .solar-panel {
+                margin-top: 12px;
+                padding: 14px;
+                border-radius: 19px;
+                border: 1px solid;
+                background: radial-gradient(circle at 100% 0%, rgba(250,204,21,.06), transparent 50%), rgba(255,255,255,.022);
+              }
+
+
+              .section-head { color: #94a3b8; font-size: 9px; font-weight: 900;
+              letter-spacing: .9px; gap: 10px; }
+
+              .section-icon { font-size: 15px; }
+
+              .section-muted { color: #475569; font-weight: 500; }
+
+              .solar-status { font-size: 8px; letter-spacing: .6px; }
+
+
+              .solar-grid { display: grid; grid-template-columns: repeat(4,1fr);
+              gap: 7px; margin-top: 12px; }
+
+              .solar-stat { min-width: 0; padding: 9px 7px; border-radius: 11px;
+              background: rgba(255,255,255,.026); text-align: center; }
+
+              .solar-stat span { display: block; color: #64748b; font-size: 7px;
+              }
+
+              .solar-stat b { display: block; margin-top: 4px; color: #e2e8f0;
+              font-size: 9px; overflow: hidden; text-overflow: ellipsis;
+              white-space: nowrap; }
+
+
+              .confidence-bar { height: 5px; margin-top: 10px; border-radius:
+              10px; overflow: hidden; background: rgba(255,255,255,.06); }
+
+              .confidence-bar div { height: 100%; border-radius: 10px;
+              background: linear-gradient(90deg,#64748b,#facc15,#34d399); }
+
+              .reason { margin-top: 9px; color: #94a3b8; font-size: 8px;
+              line-height: 1.35; }
+
+
+              .decision-grid { display: grid; grid-template-columns:
+              repeat(2,1fr); gap: 10px; margin-top: 12px; }
+
+              .decision-card { min-width: 0; padding: 12px; border-radius: 15px;
+              border: 1px solid rgba(255,255,255,.045); background:
+              rgba(255,255,255,.022); }
+
+              .decision-title { color: #94a3b8; font-size: 8px; font-weight:
+              900; letter-spacing: .7px; }
+
+              .decision-text { margin-top: 6px; color: #cbd5e1; font-size: 8px;
+              line-height: 1.35; }
+
+
+              .tariff-row { display: grid; grid-template-columns: repeat(3,1fr);
+              gap: 7px; margin-top: 12px; }
+
+              .tariff-row > div { padding: 9px; border-radius: 12px; background:
+              rgba(255,255,255,.022); border: 1px solid rgba(255,255,255,.04);
+              text-align: center; }
+
+              .tariff-row span { display: block; color: #64748b; font-size: 7px;
+              }
+
+              .tariff-row b { display: block; margin-top: 3px; color: #e2e8f0;
+              font-size: 9px; }
+
+
+              .today { margin-top: 12px; padding: 14px; border-radius: 18px;
+              background: rgba(255,255,255,.022); border: 1px solid
+              rgba(255,255,255,.045); }
+
+              .today-grid { display: grid; grid-template-columns: repeat(5,1fr);
+              gap: 7px; margin-top: 11px; }
+
+              .today-item { padding: 8px 4px; border-radius: 11px; background:
+              rgba(255,255,255,.018); text-align: center; }
+
+              .today-item span { display: block; font-size: 16px; }
+
+              .today-item b { display: block; margin-top: 4px; color: #f8fafc;
+              font-size: 10px; }
+
+              .today-item small { display: block; margin-top: 2px; color:
+              #64748b; font-size: 6.5px; }
+
+
+              .footer { gap: 10px; margin-top: 14px; padding-top: 10px;
+              border-top: 1px solid rgba(255,255,255,.04); color: #475569;
+              font-size: 7px; letter-spacing: .7px; }
+
+
+              @media (max-width: 700px) {
+                .foxcat { padding: 15px; }
+                .realtime-grid { grid-template-columns: 1fr; }
+                .solar-grid { grid-template-columns: repeat(2,1fr); }
+                .decision-grid { grid-template-columns: 1fr; }
+                .today-grid { grid-template-columns: repeat(2,1fr); }
+                .tariff-row { grid-template-columns: 1fr; }
+                .topline { align-items: center; gap: 10px; }
+                .core-mini { max-width: 45%; }
+                .mode { font-size: 15px; }
+                .brand { font-size: 18px; }
+                .system-pill { padding: 6px 8px; font-size: 7.5px; }
+              }
+            tap_action:
+              action: none
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+      - type: grid
+        cards:
+          - square: false
+            type: grid
+            cards:
+              - type: custom:button-card
+                name: Énergie
+                icon: mdi:lightning-bolt
+                label: Flux · Maison · Réseau
+                show_label: true
+                tap_action:
+                  action: navigate
+                  navigation_path: |-
+                    [[[
+                      const base =
+                        window.location.pathname.replace(/\/[^\/]*$/, '');
+
+                      return `${base}/energie`;
+                    ]]]
+                styles:
+                  card:
+                    - height: 150px
+                    - border-radius: 26px
+                    - padding: 20px
+                    - box-sizing: border-box
+                    - overflow: hidden
+                    - background: |
+                        radial-gradient(
+                          circle at 100% 0%,
+                          rgba(96,165,250,.16),
+                          transparent 46%
+                        ),
+                        linear-gradient(
+                          145deg,
+                          #070b14,
+                          #101827 55%,
+                          #080d16
+                        )
+                    - border: 1px solid rgba(96,165,250,.18)
+                    - box-shadow: >
+                        inset 0 1px 0 rgba(255,255,255,.06), 0 16px 35px
+                        rgba(0,0,0,.28)
+                  grid:
+                    - grid-template-areas: |
+                        "i"
+                        "n"
+                        "l"
+                    - grid-template-rows: 58px 28px 1fr
+                  icon:
+                    - width: 46px
+                    - color: '#60a5fa'
+                    - filter: drop-shadow(0 0 10px rgba(96,165,250,.35))
+                  name:
+                    - font-size: 19px
+                    - font-weight: 900
+                    - color: white
+                    - letter-spacing: .02em
+                  label:
+                    - font-size: 10px
+                    - font-weight: 600
+                    - color: rgba(255,255,255,.45)
+              - type: custom:button-card
+                name: Coûts
+                icon: mdi:currency-eur
+                label: Prix · Achat · Économie solaire
+                show_label: true
+                tap_action:
+                  action: navigate
+                  navigation_path: |-
+                    [[[
+                      const base =
+                        window.location.pathname.replace(/\/[^\/]*$/, '');
+
+                      return `${base}/couts`;
+                    ]]]
+                styles:
+                  card:
+                    - height: 150px
+                    - border-radius: 26px
+                    - padding: 20px
+                    - box-sizing: border-box
+                    - overflow: hidden
+                    - background: |
+                        radial-gradient(
+                          circle at 100% 0%,
+                          rgba(52,211,153,.16),
+                          transparent 46%
+                        ),
+                        linear-gradient(
+                          145deg,
+                          #070b14,
+                          #101827 55%,
+                          #080d16
+                        )
+                    - border: 1px solid rgba(52,211,153,.18)
+                    - box-shadow: >
+                        inset 0 1px 0 rgba(255,255,255,.06), 0 16px 35px
+                        rgba(0,0,0,.28)
+                  grid:
+                    - grid-template-areas: |
+                        "i"
+                        "n"
+                        "l"
+                    - grid-template-rows: 58px 28px 1fr
+                  icon:
+                    - width: 46px
+                    - color: '#34d399'
+                    - filter: drop-shadow(0 0 10px rgba(52,211,153,.35))
+                  name:
+                    - font-size: 19px
+                    - font-weight: 900
+                    - color: white
+                  label:
+                    - font-size: 10px
+                    - font-weight: 600
+                    - color: rgba(255,255,255,.45)
+              - type: custom:button-card
+                name: Onduleur
+                icon: mdi:solar-power
+                label: PV · Onduleur · Niveaux
+                show_label: true
+                tap_action:
+                  action: navigate
+                  navigation_path: |-
+                    [[[
+                      const base =
+                        window.location.pathname.replace(/\/[^\/]*$/, '');
+
+                      return `${base}/pri`;
+                    ]]]
+                styles:
+                  card:
+                    - height: 150px
+                    - border-radius: 26px
+                    - padding: 20px
+                    - box-sizing: border-box
+                    - overflow: hidden
+                    - background: |
+                        radial-gradient(
+                          circle at 100% 0%,
+                          rgba(250,204,21,.16),
+                          transparent 46%
+                        ),
+                        linear-gradient(
+                          145deg,
+                          #070b14,
+                          #101827 55%,
+                          #080d16
+                        )
+                    - border: 1px solid rgba(250,204,21,.18)
+                    - box-shadow: >
+                        inset 0 1px 0 rgba(255,255,255,.06), 0 16px 35px
+                        rgba(0,0,0,.28)
+                  grid:
+                    - grid-template-areas: |
+                        "i"
+                        "n"
+                        "l"
+                    - grid-template-rows: 58px 28px 1fr
+                  icon:
+                    - width: 46px
+                    - color: '#facc15'
+                    - filter: drop-shadow(0 0 10px rgba(250,204,21,.35))
+                  name:
+                    - font-size: 19px
+                    - font-weight: 900
+                    - color: white
+                  label:
+                    - font-size: 10px
+                    - font-weight: 600
+                    - color: rgba(255,255,255,.45)
+              - type: custom:button-card
+                name: Boiler
+                icon: mdi:water-boiler
+                label: Température · Chauffe · Historique
+                show_label: true
+                tap_action:
+                  action: navigate
+                  navigation_path: |-
+                    [[[
+                      const base =
+                        window.location.pathname.replace(/\/[^\/]*$/, '');
+
+                      return `${base}/boiler`;
+                    ]]]
+                styles:
+                  card:
+                    - height: 150px
+                    - border-radius: 26px
+                    - padding: 20px
+                    - box-sizing: border-box
+                    - overflow: hidden
+                    - background: |
+                        radial-gradient(
+                          circle at 100% 0%,
+                          rgba(251,146,60,.18),
+                          transparent 46%
+                        ),
+                        linear-gradient(
+                          145deg,
+                          #070b14,
+                          #101827 55%,
+                          #080d16
+                        )
+                    - border: 1px solid rgba(251,146,60,.18)
+                    - box-shadow: >
+                        inset 0 1px 0 rgba(255,255,255,.06), 0 16px 35px
+                        rgba(0,0,0,.28)
+                  grid:
+                    - grid-template-areas: |
+                        "i"
+                        "n"
+                        "l"
+                    - grid-template-rows: 58px 28px 1fr
+                  icon:
+                    - width: 46px
+                    - color: '#fb923c'
+                    - filter: drop-shadow(0 0 10px rgba(251,146,60,.35))
+                  name:
+                    - font-size: 19px
+                    - font-weight: 900
+                    - color: white
+                  label:
+                    - font-size: 10px
+                    - font-weight: 600
+                    - color: rgba(255,255,255,.45)
+              - type: custom:button-card
+                name: Appareils
+                icon: mdi:washing-machine
+                label: Lave-linge · Sèche-linge · LV
+                show_label: true
+                tap_action:
+                  action: navigate
+                  navigation_path: |-
+                    [[[
+                      const base =
+                        window.location.pathname.replace(/\/[^\/]*$/, '');
+
+                      return `${base}/appareils`;
+                    ]]]
+                styles:
+                  card:
+                    - height: 150px
+                    - border-radius: 26px
+                    - padding: 20px
+                    - box-sizing: border-box
+                    - overflow: hidden
+                    - background: |
+                        radial-gradient(
+                          circle at 100% 0%,
+                          rgba(196,181,253,.17),
+                          transparent 46%
+                        ),
+                        linear-gradient(
+                          145deg,
+                          #070b14,
+                          #101827 55%,
+                          #080d16
+                        )
+                    - border: 1px solid rgba(196,181,253,.18)
+                    - box-shadow: >
+                        inset 0 1px 0 rgba(255,255,255,.06), 0 16px 35px
+                        rgba(0,0,0,.28)
+                  grid:
+                    - grid-template-areas: |
+                        "i"
+                        "n"
+                        "l"
+                    - grid-template-rows: 58px 28px 1fr
+                  icon:
+                    - width: 46px
+                    - color: '#c4b5fd'
+                    - filter: drop-shadow(0 0 10px rgba(196,181,253,.35))
+                  name:
+                    - font-size: 19px
+                    - font-weight: 900
+                    - color: white
+                  label:
+                    - font-size: 10px
+                    - font-weight: 600
+                    - color: rgba(255,255,255,.45)
+              - type: custom:button-card
+                name: Technique
+                icon: mdi:cog
+                label: Instalateur Only
+                show_label: true
+                tap_action:
+                  action: navigate
+                  navigation_path: |-
+                    [[[
+                      const base =
+                        window.location.pathname.replace(/\/[^\/]*$/, '');
+
+                      return `${base}/conf`;
+                    ]]]
+                styles:
+                  card:
+                    - height: 150px
+                    - border-radius: 26px
+                    - padding: 20px
+                    - box-sizing: border-box
+                    - overflow: hidden
+                    - background: |
+                        radial-gradient(
+                          circle at 100% 0%,
+                          rgba(148,163,184,.12),
+                          transparent 46%
+                        ),
+                        linear-gradient(
+                          145deg,
+                          #070b14,
+                          #101827 55%,
+                          #080d16
+                        )
+                    - border: 1px solid rgba(148,163,184,.14)
+                    - box-shadow: >
+                        inset 0 1px 0 rgba(255,255,255,.06), 0 16px 35px
+                        rgba(0,0,0,.28)
+                  grid:
+                    - grid-template-areas: |
+                        "i"
+                        "n"
+                        "l"
+                    - grid-template-rows: 58px 28px 1fr
+                  icon:
+                    - width: 46px
+                    - color: '#94a3b8'
+                    - filter: drop-shadow(0 0 10px rgba(148,163,184,.25))
+                  name:
+                    - font-size: 19px
+                    - font-weight: 900
+                    - color: white
+                  label:
+                    - font-size: 10px
+                    - font-weight: 600
+                    - color: rgba(255,255,255,.45)
+              - type: custom:button-card
+                name: Back Home
+                icon: mdi:home
+                label: Accueil Home Assistant
+                show_label: true
+                tap_action:
+                  action: navigate
+                  navigation_path: /home2
+                styles:
+                  card:
+                    - height: 150px
+                    - border-radius: 26px
+                    - padding: 20px
+                    - box-sizing: border-box
+                    - overflow: hidden
+                    - background: |
+                        radial-gradient(
+                          circle at 100% 0%,
+                          rgba(148,163,184,.12),
+                          transparent 46%
+                        ),
+                        linear-gradient(
+                          145deg,
+                          #070b14,
+                          #101827 55%,
+                          #080d16
+                        )
+                    - border: 1px solid rgba(148,163,184,.14)
+                    - box-shadow: |
+                        inset 0 1px 0 rgba(255,255,255,.06),
+                        0 16px 35px rgba(0,0,0,.28)
+                  grid:
+                    - grid-template-areas: |
+                        "i"
+                        "n"
+                        "l"
+                    - grid-template-rows: 58px 28px 1fr
+                  icon:
+                    - width: 46px
+                    - color: '#94a3b8'
+                    - filter: drop-shadow(0 0 10px rgba(148,163,184,.25))
+                  name:
+                    - font-size: 19px
+                    - font-weight: 900
+                    - color: white
+                  label:
+                    - font-size: 10px
+                    - font-weight: 600
+                    - color: rgba(255,255,255,.45)
+              - type: custom:button-card
+                name: I.A.
+                icon: mdi:robot
+                label: Intelligence Artficielle
+                show_label: true
+                tap_action:
+                  action: navigate
+                  navigation_path: null
+                styles:
+                  card:
+                    - height: 150px
+                    - border-radius: 26px
+                    - padding: 20px
+                    - box-sizing: border-box
+                    - overflow: hidden
+                    - background: |
+                        radial-gradient(
+                          circle at 100% 0%,
+                          rgba(148,163,184,.12),
+                          transparent 46%
+                        ),
+                        linear-gradient(
+                          145deg,
+                          #070b14,
+                          #101827 55%,
+                          #080d16
+                        )
+                    - border: 1px solid rgba(148,163,184,.14)
+                    - box-shadow: |
+                        inset 0 1px 0 rgba(255,255,255,.06),
+                        0 16px 35px rgba(0,0,0,.28)
+                  grid:
+                    - grid-template-areas: |
+                        "i"
+                        "n"
+                        "l"
+                    - grid-template-rows: 58px 28px 1fr
+                  icon:
+                    - width: 46px
+                    - color: '#94a3b8'
+                    - filter: drop-shadow(0 0 10px rgba(148,163,184,.25))
+                  name:
+                    - font-size: 19px
+                    - font-weight: 900
+                    - color: white
+                  label:
+                    - font-size: 10px
+                    - font-weight: 600
+                    - color: rgba(255,255,255,.45)
+            columns: 3
+    background:
+      opacity: 100
+      alignment: center
+      size: cover
+      repeat: repeat
+      attachment: fixed
+      image:
+        media_content_id: media-source://image_upload/fadc608e811683f9ac1563ad367be7d1
+        media_content_type: image/png
+        metadata:
+          title: 1000009922.png
+          thumbnail: /api/image/serve/fadc608e811683f9ac1563ad367be7d1/256x256
+          media_class: image
+          navigateIds:
+            - {}
+            - media_content_type: app
+              media_content_id: media-source://image_upload
+    cards: []
   - type: sections
     max_columns: 4
     title: Coûts
@@ -15739,7 +16785,7 @@ views:
                         <div class="feature">
 
                           <span>
-                            EMS 2
+                            IA
                           </span>
 
                           <strong style="color:${advisor.color};">
@@ -17496,14 +18542,14 @@ views:
 
 
 
-                        <!-- EMS2 -->
+                        <!-- IA -->
 
                         <div class="mini forecast">
 
                           <div class="mini-top">
 
                             <span>
-                              EMS 2 SOLAIRE
+                              IA SOLAIRE
                             </span>
 
                             <ha-icon icon="mdi:weather-sunny-alert"></ha-icon>
@@ -19346,7 +20392,7 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: EMS2 · Prévision solaire
+            heading: IA · Prévision solaire
             heading_style: title
             icon: mdi:brain
           - type: tile
@@ -19437,7 +20483,7 @@ views:
                   target:
                     entity_id: input_button.ems_2_analyse_solaire
               - type: tile
-                name: Réglages EMS2
+                name: Réglages IA
                 icon: mdi:tune
                 color: purple
                 vertical: false
